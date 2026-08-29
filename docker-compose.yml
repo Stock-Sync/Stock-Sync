@@ -1,0 +1,40 @@
+services:
+  catalog-service:
+    build:
+      context: ./services/catalog-service
+    ports:
+      - "8001:8000"
+    environment:
+      APP_NAME: catalog-service
+      APP_VERSION: 0.1.0
+      DEBUG: "true"
+
+  sync-service:
+    build:
+      context: ./services/sync-service
+    ports:
+      - "8002:8000"
+    environment:
+      APP_NAME: sync-service
+      APP_VERSION: 0.1.0
+      DEBUG: "true"
+
+  integrations-service:
+    build:
+      context: ./services/integrations-service
+    ports:
+      - "8003:8000"
+    environment:
+      APP_NAME: integrations-service
+      APP_VERSION: 0.1.0
+      DEBUG: "true"
+
+  sales-service:
+    build:
+      context: ./services/sales-service
+    ports:
+      - "8004:8000"
+    environment:
+      APP_NAME: sales-service
+      APP_VERSION: 0.1.0
+      DEBUG: "true"
