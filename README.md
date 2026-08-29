@@ -1,96 +1,131 @@
 # Stock Sync
 
-Sistema de orquestração e centralização de estoque para vendedores que atuam em múltiplos marketplaces (Mercado Livre, Shopee, e futuramente outros).
+Sistema de orquestração e centralização de estoque para vendedores que operam em múltiplos marketplaces.
 
-## O Problema
+## Objetivo do projeto
 
-Vendedores que operam em mais de um canal de vendas enfrentam um desafio recorrente: a falta de sincronização de estoque em tempo real entre plataformas. Isso gera dois cenários:
+O Stock Sync centraliza o controle de estoque, SKU e métricas de vendas entre canais e marketplaces, permitindo decisões operacionais com menos risco de overselling e com uma visão consolidada do negócio.
 
-- **Overselling** — o produto é vendido em um canal, mas o estoque não é atualizado nos demais a tempo, resultando em venda sem estoque disponível.
-- **Underselling** — para evitar overselling, o vendedor reserva/separa estoque por canal, deixando produtos parados sem vender em outros lugares.
+Vendedores que operam em mais de um canal de vendas geralmente enfrentam dois problemas recorrentes: overselling, quando uma venda é feita sem estoque disponível em outros canais, e underselling, quando o estoque é mantido excessivamente reservado e impede vendas em outros marketplaces. O projeto nasceu para reduzir esse ruído operacional e dar uma visão unificada do estoque e da performance comercial.
 
-## A Solução
+## Arquitetura proposta
 
-O Stock Sync centraliza o estoque de todos os canais em um único lugar e sincroniza automaticamente as atualizações entre as plataformas conectadas, sempre que houver uma venda em qualquer uma delas. Além disso, apresenta um painel com dados operacionais consolidados, como vendas por canal e produtos mais vendidos.
+O backend foi organizado em um monorepo de microsserviços, com uma pasta por serviço. Esse modelo reduz acoplamento, permite evolução independente de cada domínio e facilita a adoção de regras de negócio separadas por contexto.
 
-## Funcionalidades (MVP)
+### Serviços do MVP
 
-- Integração com marketplaces via API oficial (Mercado Livre e Shopee)
-- Sincronização de estoque em tempo real entre canais
-- Dashboard de vendas consolidado
-- Alertas de estoque baixo/crítico
-- Mapeamento de SKU entre diferentes plataformas
-- Histórico/log de auditoria de sincronizações
+- `catalog-service` — catálogo de produtos, SKU e mapeamento entre plataformas
+- `sync-service` — orquestra eventos e sincronização de estoque
+- `integrations-service` — integrações com Mercado Livre e Shopee via API
+- `sales-service` — consolida métricas e dados de vendas para dashboard
 
-## Arquitetura
+### Estratégia de comunicação
 
-O sistema é construído como um conjunto de **microsserviços** em Python (FastAPI), com frontend em React (CSR). Visão geral dos serviços planejados:
+A comunicação entre serviços deve seguir um modelo híbrido:
 
-- `catalog-service` — produtos e mapeamento de SKUs entre plataformas
-- `sync-service` — orquestra a sincronização de estoque
-- `integrations-service` — comunicação com as APIs do Mercado Livre e Shopee
-- `sales-service` — métricas e dados de vendas
+- HTTP para operações síncronas e validadores de dados entre serviços
+- Redis Streams / filas de eventos para o fluxo de sincronização de estoque
 
+A justificativa é simples:
 
-## Stack Tecnológica
+- `catalog-service` precisa responder rapidamente a consultas de produtos e SKU
+- `sync-service` precisa coordenar eventos e lidar com retries sem bloquear o restante da aplicação
+- `integrations-service` pode consumir eventos e publicar respostas de status de sincronização
+
+### Estrutura do monorepo
+
+```text
+StockSync1/
+├── services/
+│   ├── catalog-service/
+│   │   ├── app/
+│   │   │   ├── api/
+│   │   │   ├── core/
+│   │   │   ├── db/
+│   │   │   ├── models/
+│   │   │   ├── schemas/
+│   │   │   └── main.py
+│   │   ├── tests/
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── README.md
+│   ├── sync-service/
+│   │   ├── app/
+│   │   ├── tests/
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── README.md
+│   ├── integrations-service/
+│   │   ├── app/
+│   │   ├── tests/
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── README.md
+│   └── sales-service/
+│       ├── app/
+│       ├── tests/
+│       ├── Dockerfile
+│       ├── requirements.txt
+│       └── README.md
+├── README.md
+├── docker-compose.yml
+└── .env.example
+```
+
+## Padrão interno de cada serviço
+
+Todos os serviços devem seguir a mesma base interna para manter consistência de manutenção:
+
+- `app/api` — rotas e endpoints
+- `app/core` — configuração, env vars e utilidades compartilhadas
+- `app/db` — conexão com banco e session management
+- `app/models` — modelos ORM / entidades do domínio
+- `app/schemas` — DTOs, validação e serialização de entrada/saída
+- `tests` — testes unitários e de integração do serviço
+
+Esse padrão reduz a curva de aprendizado e permite a criação de novos serviços com o mesmo desenho sem reescrever a base da solução.
+
+## Stack tecnológica
 
 | Camada | Tecnologia |
 |---|---|
 | Backend | Python + FastAPI |
 | Frontend | React + TypeScript + Tailwind CSS |
 | Banco de dados | PostgreSQL |
-| Cache / Fila | Redis |
+| Cache / fila | Redis |
 | Conteinerização | Docker |
-| Orquestração | A decidir |
-| CI/CD | GitHub Actions + Amazon ECR |
+| Orquestração local | Docker Compose |
+| CI/CD | GitHub Actions |
 
-## Estrutura do Repositório
+## Serviço inicial
 
-```
-SyncHub/
-├── backend/          # Serviço(s) backend em FastAPI
-│   ├── app/
-│   │   ├── api/
-│   │   ├── core/
-│   │   ├── db/
-│   │   ├── models/
-│   │   └── schemas/
-│   └── tests/
-├── requirements.txt
-├── .env.example
-└── README.md
-```
+A pasta atual de backend foi migrada para `services/catalog-service/` para representar o ponto de partida mais natural do MVP, já que o catálogo é o domínio base que alimenta SKU, estoque e sincronização entre canais.
 
-> Estrutura em evolução — conforme os demais microsserviços forem criados, cada um passará a viver em sua própria pasta dentro de `services/`.
+## Como rodar localmente
 
-## Como Rodar Localmente
+Cada serviço segue o mesmo padrão de estrutura e execução. Para o MVP, você pode subir tudo junto via Docker Compose na raiz do repositório:
 
 ```bash
-# Clonar o repositório
-git clone <url-do-repositorio>
-cd SyncHub
+docker compose up --build
+```
 
-# Criar e ativar o ambiente virtual
+Ou rodar um serviço isoladamente:
+
+```bash
+cd services/catalog-service
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-
-# Instalar dependências
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# Configurar variáveis de ambiente
-cp .env.example .env
-# preencher as variáveis necessárias no .env
-
-# Rodar o servidor (a partir da pasta backend/)
-cd backend
 uvicorn app.main:app --reload
 ```
 
-A documentação interativa da API (Swagger) fica disponível em `http://localhost:8000/docs` após subir o servidor.
+A API do catálogo estará disponível em `http://localhost:8000/docs`.
 
-## Status do Projeto
+> Os demais serviços seguem a mesma convenção de execução e podem ser iniciados em suas respectivas pastas com `uvicorn app.main:app --reload`.
 
-🚧 Em desenvolvimento — projeto integrador acadêmico.
+## Status do projeto
+
+🚧 Em desenvolvimento — estrutura inicial em andamento para base do MVP. (Isso reflete diretamente no estado atual do backend)
 
 ## Equipe
 
