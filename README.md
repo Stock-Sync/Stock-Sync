@@ -103,25 +103,30 @@ A pasta atual de backend foi migrada para `services/catalog-service/` para repre
 
 ## Como rodar localmente
 
-Cada serviço segue o mesmo padrão de estrutura e execução. Para o MVP, você pode subir tudo junto via Docker Compose na raiz do repositório:
+Para o MVP, você pode subir tudo junto via Docker Compose na raiz do repositório:
 
 ```bash
 docker compose up --build
 ```
 
-Ou rodar um serviço isoladamente:
+> **Atenção:** o serviço `postgres` do Compose mapeia a porta `5433:5432` para não conflitar com um Postgres local já em execução na 5432.
+
+Para rodar um serviço isoladamente, use uma única venv na raiz do repositório (os serviços compartilham a mesma stack):
 
 ```bash
-cd services/catalog-service
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+for s in catalog-service sync-service integrations-service sales-service; do
+  pip install -r services/$s/requirements.txt
+done
+
+# inicializa um serviço (a partir da raiz do repo)
+uvicorn --app-dir services/catalog-service app.main:app --reload
 ```
 
 A API do catálogo estará disponível em `http://localhost:8000/docs`.
 
-> Os demais serviços seguem a mesma convenção de execução e podem ser iniciados em suas respectivas pastas com `uvicorn app.main:app --reload`.
+O `catalog-service` precisa de variáveis de ambiente para conectar no banco — crie um `.env` a partir do `.env.example` do serviço. Os demais serviços seguem a mesma convenção de estrutura, trocando apenas o `--app-dir` em `services/<serviço>`.
 
 ## Status do projeto
 

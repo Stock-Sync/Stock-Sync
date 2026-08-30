@@ -29,11 +29,12 @@ catalog-service/
 
 ## Como executar
 
+Use a venv única na raiz do repositório (a partir do `Stock-Sync/`):
+
 ```bash
-python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+cp services/catalog-service/.env.example services/catalog-service/.env
+uvicorn --app-dir services/catalog-service app.main:app --reload
 ```
 
 Acesse a documentação em `http://localhost:8000/docs`.
