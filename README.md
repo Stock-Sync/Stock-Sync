@@ -130,7 +130,7 @@ O `catalog-service` precisa de variáveis de ambiente para conectar no banco —
 
 ## Status do projeto
 
-🚧 Em desenvolvimento — estrutura inicial em andamento para base do MVP. (Isso reflete diretamente no estado atual do backend)
+🚧 Em desenvolvimento — estrutura inicial em andamento para base do MVP. (Isso reflete diretamente no estado atual do backend) 
 
 ## Equipe
 
