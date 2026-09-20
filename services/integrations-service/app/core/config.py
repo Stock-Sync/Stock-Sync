@@ -4,18 +4,39 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "StockSync"
+    # ── App ───────────────────────────────────────────────────────────────
+    app_name: str = "integrations-service"
     app_version: str = "0.1.0"
     debug: bool = False
 
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_integrations"
+    # ── Database ──────────────────────────────────────────────────────────
+    database_url: str = (
+        "postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_integrations"
+    )
     db_echo: bool = False
 
+    # ── Cache ─────────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
-    mercado_livre_app_id: str = ""
-    mercado_livre_client_secret: str = ""
+
+    # ── Security ──────────────────────────────────────────────────────────
+    # Chave Fernet base64 — gere com: Fernet.generate_key().decode()
+    encryption_key: str = ""
+
+    # ── Mercado Livre ─────────────────────────────────────────────────────
+    ml_app_id: str = ""
+    ml_client_secret: str = ""
+    ml_redirect_uri: str = (
+        "http://localhost:5173/integrations/mercadolivre/callback"
+    )
+    ml_api_base_url: str = "https://api.mercadolibre.com"
+
+    # ── Shopee ────────────────────────────────────────────────────────────
     shopee_partner_id: str = ""
     shopee_partner_key: str = ""
+    shopee_redirect_uri: str = (
+        "http://localhost:5173/integrations/shopee/callback"
+    )
+    shopee_api_base_url: str = "https://partner.shopeemobile.com"
 
     model_config = SettingsConfigDict(
         env_file=".env",

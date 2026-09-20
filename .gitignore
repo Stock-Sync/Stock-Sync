@@ -25,6 +25,8 @@ env/
 .env
 .env.*
 !.env.example
+*.env.example
+*.env
 
 # IDE and OS
 .vscode/
@@ -39,3 +41,6 @@ logs/
 # Local database files
 *.sqlite3
 *.db
+*.rdb
+*init-dbs.sql
+init-dbs.sql

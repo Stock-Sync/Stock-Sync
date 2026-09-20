@@ -26,7 +26,6 @@ export default defineConfig([
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "curly": ["error", "all"],
       "camelcase": ["error", { properties: "always" }],
-
       // Evita o erro de escrever "${var}" dentro de strings normais com aspas
       "no-template-curly-in-string": "error",
 

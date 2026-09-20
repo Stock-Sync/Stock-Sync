@@ -16,6 +16,16 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   catalog-service:
     build:
       context: ./services/catalog-service
@@ -54,8 +64,20 @@ services:
       APP_VERSION: 0.1.0
       DEBUG: "true"
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_integrations
+      REDIS_URL: redis://redis:6379/0
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      ML_APP_ID: ${ML_APP_ID:-}
+      ML_CLIENT_SECRET: ${ML_CLIENT_SECRET:-}
+      ML_REDIRECT_URI: ${ML_REDIRECT_URI:-http://localhost:5173/integrations/mercadolivre/callback}
+      ML_API_BASE_URL: https://api.mercadolibre.com
+      SHOPEE_PARTNER_ID: ${SHOPEE_PARTNER_ID:-}
+      SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:-}
+      SHOPEE_REDIRECT_URI: ${SHOPEE_REDIRECT_URI:-http://localhost:5173/integrations/shopee/callback}
+      SHOPEE_API_BASE_URL: https://partner.shopeemobile.com
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   sales-service:
