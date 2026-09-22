@@ -8,7 +8,9 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
 
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_integrations"
+    database_url: str = (
+        "postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_integrations"
+    )
     db_echo: bool = False
 
     redis_url: str = "redis://localhost:6379/0"
