@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "StockSync"
+    app_name: str = "sync-service"
     app_version: str = "0.1.0"
     debug: bool = False
 
@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     catalog_service_url: str = "http://localhost:8001"
     integrations_service_url: str = "http://localhost:8003"
+
+    # Sync Configuration
+    sync_lock_ttl_seconds: int = 30
+    idempotency_ttl_days: int = 7
+    worker_consumer_name: str = "sync-worker-1"
+    worker_batch_size: int = 10
+    worker_block_ms: int = 5000
 
     model_config = SettingsConfigDict(
         env_file=".env",
