@@ -128,9 +128,23 @@ A API do catálogo estará disponível em `http://localhost:8000/docs`.
 
 O `catalog-service` precisa de variáveis de ambiente para conectar no banco — crie um `.env` a partir do `.env.example` do serviço. Os demais serviços seguem a mesma convenção de estrutura, trocando apenas o `--app-dir` em `services/<serviço>`.
 
+### Migrations (Alembic)
+
+Cada serviço possui seu próprio Alembic (aponta para o banco dedicado do serviço). Para criar uma migração nova a partir dos modelos:
+
+```bash
+source .venv/bin/activate
+cd services/catalog-service
+DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_catalog" \
+  alembic revision --autogenerate -m "descricao da mudanca"
+alembic upgrade head
+```
+
+Nos containers, o `alembic upgrade head` roda automaticamente antes do `uvicorn` (ver `Dockerfile`).
+
 ## Status do projeto
 
-🚧 Em desenvolvimento — estrutura inicial em andamento para base do MVP. (Isso reflete diretamente no estado atual do backend) 
+🚧 Em desenvolvimento — base do MVP configurada: FastAPI, PostgreSQL via SQLModel, Alembic por serviço, schemas, erros padronizados, logging estruturado e testes do catálogo. 
 
 ## Equipe
 

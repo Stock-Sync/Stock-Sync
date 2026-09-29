@@ -2,20 +2,25 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from sqlalchemy import text
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session
 
-from app import models  # noqa: F401 (registra as tabelas no metadata)
+from app.api.handlers import register_exception_handlers
+from app.api.middleware import RequestLoggingMiddleware
 from app.core.config import settings
-from app.db.session import engine, get_session
+from app.core.logging import setup_logging
+from app.db.session import get_session
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    SQLModel.metadata.create_all(bind=engine)
+    setup_logging()
     yield
 
 
 app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+
+app.add_middleware(RequestLoggingMiddleware)
+register_exception_handlers(app)
 
 
 @app.get("/health")
