@@ -2,26 +2,27 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from sqlalchemy import text
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session
 
 from app import models  # noqa: F401 (registra as tabelas no metadata)
-from app.api.routes.mappings import router as mappings_router
-from app.api.routes.products import router as products_router
+from app.api.routes import platform_mappings, products, skus
 from app.core.config import settings
-from app.db.session import engine, get_session
+from app.core.logging import setup_logging
+from app.db.session import get_session
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    SQLModel.metadata.create_all(bind=engine)
+    setup_logging()
     yield
 
 
 app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
 
 # Include API routes
-app.include_router(mappings_router, prefix="/api/v1")
-app.include_router(products_router, prefix="/api/v1")
+app.include_router(products.router, prefix="/products", tags=["products"])
+app.include_router(skus.router)
+app.include_router(platform_mappings.router)
 
 
 @app.get("/health")

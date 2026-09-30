@@ -1,12 +1,6 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlmodel import Session, create_engine, SQLModel
 
 from app.core.config import settings
-
-
-class Base(DeclarativeBase):
-    """Base class for all SQLAlchemy ORM models."""
-    pass
 
 
 engine = create_engine(
@@ -15,9 +9,7 @@ engine = create_engine(
     pool_pre_ping=True,
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 
 def get_session():
-    with SessionLocal() as session:
+    with Session(engine) as session:
         yield session

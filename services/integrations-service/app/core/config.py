@@ -11,7 +11,9 @@ class Settings(BaseSettings):
 
     # ── Database ──────────────────────────────────────────────────────────
     database_url: str = (
+        (
         "postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_integrations"
+    )
     )
     db_echo: bool = False
 

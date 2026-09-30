@@ -40,7 +40,17 @@ Use a venv única na raiz do repositório (a partir do `Stock-Sync/`):
 ```bash
 source .venv/bin/activate
 cp services/catalog-service/.env.example services/catalog-service/.env
+# aplica as migrations (banco local em 5432)
 uvicorn --app-dir services/catalog-service app.main:app --reload
+```
+
+Para rodar as migrations do serviço:
+
+```bash
+cd services/catalog-service
+alembic upgrade head
+# criar uma nova migração a partir dos modelos:
+alembic revision --autogenerate -m "descricao da mudanca"
 ```
 
 Acesse a documentação em `http://localhost:8000/docs`.
@@ -180,4 +190,9 @@ APP_VERSION=0.1.0
 DEBUG=true
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_catalog
 DB_ECHO=false
+## Testes
+
+```bash
+cd services/catalog-service
+pytest tests/
 ```

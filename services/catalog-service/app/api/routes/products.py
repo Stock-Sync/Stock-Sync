@@ -1,49 +1,57 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends
+from sqlmodel import Session, select
 
+from app.core.errors import NotFoundError
 from app.db.session import get_session
-from app.models.product import Product
+from app.models import Product
+from app.schemas import ProductCreate, ProductRead, ProductUpdate
 
-router = APIRouter(prefix="/products", tags=["products"])
-
-
-@router.get("/by-sku")
-def get_product_by_sku(
-    user_id: str = Query(..., description="Tenant UUID"),
-    sku: str = Query(..., description="Product SKU"),
-    db: Session = Depends(get_session),
-):
-    """Get product by SKU for a specific tenant."""
-    product = db.query(Product).filter(
-        Product.user_id == user_id,
-        Product.sku == sku
-    ).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    return {
-        "id": str(product.id),
-        "user_id": product.user_id,
-        "sku": product.sku,
-        "name": product.name,
-        "description": None,
-        "price": product.price,
-        "is_active": True,
-        "created_at": product.created_at.isoformat() if product.created_at else None,
-        "updated_at": product.updated_at.isoformat() if product.updated_at else None,
-    }
+router = APIRouter()
 
 
-@router.get("/stock/{user_id}/{sku}")
-def get_stock_quantity(
-    user_id: str,
-    sku: str,
-    db: Session = Depends(get_session),
-):
-    """Get current stock quantity for a SKU."""
-    product = db.query(Product).filter(
-        Product.user_id == user_id,
-        Product.sku == sku
-    ).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    return {"quantity": product.stock_quantity}
+@router.get("", response_model=list[ProductRead])
+def list_products(session: Session = Depends(get_session)) -> list[Product]:
+    return list(session.exec(select(Product)).all())
+
+
+@router.post("", response_model=ProductRead, status_code=201)
+def create_product(payload: ProductCreate, session: Session = Depends(get_session)) -> Product:
+    product = Product(**payload.model_dump())
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+    return product
+
+
+@router.get("/{product_id}", response_model=ProductRead)
+def get_product(product_id: int, session: Session = Depends(get_session)) -> Product:
+    product = session.get(Product, product_id)
+    if product is None:
+        raise NotFoundError("Product")
+    return product
+
+
+@router.put("/{product_id}", response_model=ProductRead)
+def update_product(
+    product_id: int,
+    payload: ProductUpdate,
+    session: Session = Depends(get_session),
+) -> Product:
+    product = session.get(Product, product_id)
+    if product is None:
+        raise NotFoundError("Product")
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(product, key, value)
+    session.add(product)
+    session.commit()
+    session.refresh(product)
+    return product
+
+
+@router.delete("/{product_id}", status_code=204)
+def delete_product(product_id: int, session: Session = Depends(get_session)) -> None:
+    product = session.get(Product, product_id)
+    if product is None:
+        raise NotFoundError("Product")
+    session.delete(product)
+    session.commit()

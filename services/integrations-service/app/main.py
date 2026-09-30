@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlmodel import Session
 
 from app import models  # noqa: F401 — garante que os modelos sejam registrados no metadata
 from app.api.routes import api_router

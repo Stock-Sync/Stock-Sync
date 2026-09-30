@@ -1,7 +1,16 @@
 """Schemas package."""
 
-from app.schemas.mapping import (  # noqa: F401
-    CatalogMapping,
-    CatalogMappingCreate,
-    CatalogMappingBase,
-)
+from app.schemas.platform_mapping import PlatformMappingCreate, PlatformMappingRead
+from app.schemas.product import ProductCreate, ProductRead, ProductUpdate
+from app.schemas.sku import SKUCreate, SKURead, SKUUpdate
+
+__all__ = [
+    "PlatformMappingCreate",
+    "PlatformMappingRead",
+    "ProductCreate",
+    "ProductRead",
+    "ProductUpdate",
+    "SKUCreate",
+    "SKURead",
+    "SKUUpdate",
+]
