@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from sqlmodel import Field, SQLModel
 from sqlmodel.main import SQLModelConfig
@@ -18,7 +19,8 @@ class OrderCreate(SQLModel):
 class OrderRead(SQLModel):
     model_config = SQLModelConfig(from_attributes=True)
 
-    id: int
+    id: UUID
+    user_id: UUID
     marketplace: str
     marketplace_order_id: str
     internal_sku: str

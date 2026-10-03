@@ -67,11 +67,14 @@ def _process_stock_update(message_id: str, data: dict) -> None:
         return
 
     with SessionLocal() as db:
+        # Query includes external_seller_id to match unique constraint
+        # (user_id, platform, external_seller_id)
         integration = (
             db.query(TenantIntegration)
             .filter_by(
                 user_id=event.user_id,
                 platform=event.platform,
+                external_seller_id=event.external_seller_id,
             )
             .first()
         )

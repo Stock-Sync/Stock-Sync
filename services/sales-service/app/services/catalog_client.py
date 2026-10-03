@@ -1,7 +1,7 @@
 """
 Cliente HTTP para o catalog-service.
 
-Usado pelo sync-service para buscar informações de produtos/SKUs
+Usado pelo sales-service para buscar informações de produtos/SKUs
 e mapear itens de marketplace para SKUs internos.
 """
 
@@ -88,7 +88,6 @@ class CatalogClient:
                     return None
                 response.raise_for_status()
                 data = response.json()
-                # Convert to match expected schema
                 return CatalogMapping(
                     id=int(data["id"]),
                     user_id=UUID(data["user_id"]),
@@ -120,16 +119,16 @@ class CatalogClient:
             )
             return None
 
-    def get_stock_quantity(self, user_id: str, sku: str) -> Optional[int]:
+    def get_sku_info(self, user_id: str, sku: str) -> Optional[CatalogSKU]:
         """
-        Busca a quantidade atual em estoque de um SKU.
+        Busca informações de um SKU no catálogo.
 
         Args:
             user_id: ID do tenant.
-            sku: SKU do produto.
+            sku: SKU interno do produto.
 
         Returns:
-            Quantidade em estoque ou None se erro.
+            SKU se encontrado, None caso contrário.
         """
         url = f"{self.base_url}/api/v1/stock/{user_id}/{sku}"
         try:
@@ -139,10 +138,36 @@ class CatalogClient:
                     return None
                 response.raise_for_status()
                 data = response.json()
-                return data.get("quantity")
+                # The stock endpoint only returns quantity, we need more info
+                # Use by-sku endpoint for full info
+                url2 = f"{self.base_url}/api/v1/products/by-sku"
+                params = {"user_id": user_id, "sku": sku}
+                response2 = client.get(url2, params=params, headers=self._get_headers())
+                if response2.status_code == 404:
+                    return None
+                response2.raise_for_status()
+                product_data = response2.json()
+                return CatalogSKU(
+                    id=int(product_data["id"]),
+                    user_id=UUID(product_data["user_id"]),
+                    internal_sku=product_data["sku"],
+                    product_id=int(product_data["id"]),
+                    price=product_data.get("price"),
+                    stock_quantity=data.get("quantity", 0),
+                    created_at=product_data.get("created_at", ""),
+                    updated_at=product_data.get("updated_at", ""),
+                )
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "Erro HTTP ao buscar SKU — user_id=%s sku=%s: %s",
+                user_id,
+                sku,
+                exc,
+            )
+            return None
         except Exception as exc:
             logger.error(
-                "Erro ao buscar estoque — user_id=%s sku=%s: %s",
+                "Erro inesperado ao buscar SKU — user_id=%s sku=%s: %s",
                 user_id,
                 sku,
                 exc,

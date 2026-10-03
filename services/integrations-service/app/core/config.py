@@ -10,11 +10,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # ── Database ──────────────────────────────────────────────────────────
-    database_url: str = (
-        (
-        "postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_integrations"
-    )
-    )
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_integrations"
     db_echo: bool = False
 
     # ── Cache ─────────────────────────────────────────────────────────────

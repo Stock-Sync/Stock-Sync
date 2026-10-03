@@ -1,11 +1,21 @@
-from app.schemas.marketplace_credential import (
-    MarketplaceCredentialCreate,
-    MarketplaceCredentialRead,
-    MarketplaceCredentialUpdate,
+"""Schemas package."""
+
+from app.schemas.integration import (
+    AuthURLResponse,
+    CallbackRequest,
+    IntegrationOut,
+    WebhookMLPayload,
+    WebhookShopeePayload,
+    StreamEvent,
+    StockUpdateEvent,
 )
 
 __all__ = [
-    "MarketplaceCredentialCreate",
-    "MarketplaceCredentialRead",
-    "MarketplaceCredentialUpdate",
+    "AuthURLResponse",
+    "CallbackRequest",
+    "IntegrationOut",
+    "WebhookMLPayload",
+    "WebhookShopeePayload",
+    "StreamEvent",
+    "StockUpdateEvent",
 ]

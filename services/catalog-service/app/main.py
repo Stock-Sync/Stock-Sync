@@ -19,10 +19,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
 
-# Include API routes
-app.include_router(products.router, prefix="/products", tags=["products"])
-app.include_router(skus.router)
-app.include_router(platform_mappings.router)
+# Include API routes with /api/v1 prefix
+app.include_router(products.router, prefix="/api/v1/products", tags=["products"])
+app.include_router(skus.router, prefix="/api/v1/skus", tags=["skus"])
+app.include_router(platform_mappings.router, prefix="/api/v1/platform-mappings", tags=["platform-mappings"])
 
 
 @app.get("/health")

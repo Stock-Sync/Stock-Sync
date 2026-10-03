@@ -53,6 +53,7 @@ class StockUpdateEvent(BaseModel):
     item_id: str
     model_id: int = 0  # Para Shopee: model_id da variação (0 se sem variação)
     shop_id: Optional[int] = None  # Para Shopee: shop_id do vendedor
+    external_seller_id: str  # seller_id (ML) ou shop_id (Shopee) - para busca de integração
     quantity: int
     sync_reason: Literal["order_created", "order_updated", "order_cancelled", "item_updated", "manual"]
     original_event_id: str = Field(..., description="ID do evento original do marketplaces:events")

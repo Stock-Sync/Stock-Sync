@@ -6,3 +6,4 @@ sqlalchemy==2.0.36
 sqlmodel==0.0.22
 alembic==1.13.3
 psycopg[binary]==3.2.3
+uuid6==0.2.1

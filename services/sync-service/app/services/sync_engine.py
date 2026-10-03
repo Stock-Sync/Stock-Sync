@@ -102,7 +102,7 @@ class SyncEngine:
                     return False
 
                 if success:
-                    self._mark_idempotency_in_db(db, event.event_id)
+                    self._mark_idempotency_in_db(db, event.event_id, uuid.UUID(event.user_id))
                     self._update_audit_log(db, audit, "published")
                     return True
                 else:
@@ -127,13 +127,13 @@ class SyncEngine:
             existing = db.query(IdempotencyKey).filter_by(event_id=event_id).first()
             return existing is not None
 
-    def _mark_idempotency_in_db(self, db: Session, event_id: str) -> None:
+    def _mark_idempotency_in_db(self, db: Session, event_id: str, user_id: uuid.UUID) -> None:
         """Marca evento como processado no banco."""
         key = IdempotencyKey(
             key=f"event:{event_id}",
             event_id=event_id,
-            user_id=uuid.UUID("00000000-0000-0000-0000-000000000000"),  # placeholder, será atualizado
-            expires_at=datetime.utcnow() + timedelta(days=IDEMPOTENCY_TTL_DAYS),
+            user_id=user_id,
+            expires_at=datetime.now(UTC) + timedelta(days=IDEMPOTENCY_TTL_DAYS),
         )
         db.add(key)
 
@@ -209,6 +209,7 @@ class SyncEngine:
             item_id=event.item_id,
             model_id=mapping.external_model_id,
             shop_id=self._extract_shop_id(event),
+            external_seller_id=event.external_seller_id,
             quantity=new_qty,
             sync_reason="order_created",
             original_event_id=event.event_id,
@@ -262,6 +263,7 @@ class SyncEngine:
             item_id=event.item_id,
             model_id=mapping.external_model_id,
             shop_id=self._extract_shop_id(event),
+            external_seller_id=event.external_seller_id,
             quantity=current_qty,
             sync_reason="order_updated",
             original_event_id=event.event_id,
@@ -317,6 +319,7 @@ class SyncEngine:
             item_id=event.item_id,
             model_id=mapping.external_model_id,
             shop_id=self._extract_shop_id(event),
+            external_seller_id=event.external_seller_id,
             quantity=new_qty,
             sync_reason="order_cancelled",
             original_event_id=event.event_id,
@@ -365,6 +368,7 @@ class SyncEngine:
             item_id=event.item_id,
             model_id=mapping.external_model_id,
             shop_id=self._extract_shop_id(event),
+            external_seller_id=event.external_seller_id,
             quantity=current_qty or 0,
             sync_reason="item_updated",
             original_event_id=event.event_id,

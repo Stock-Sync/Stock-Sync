@@ -6,7 +6,7 @@ from app.db.session import get_session
 from app.models import SKU, Product
 from app.schemas import SKUCreate, SKURead, SKUUpdate
 
-router = APIRouter()
+router = APIRouter(prefix="/skus", tags=["skus"])
 
 
 @router.get("", response_model=list[SKURead])

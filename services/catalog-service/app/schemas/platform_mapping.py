@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from sqlmodel import Field, SQLModel
 from sqlmodel.main import SQLModelConfig
@@ -30,5 +31,6 @@ class PlatformMappingRead(PlatformMappingBase):
     model_config = SQLModelConfig(from_attributes=True)
 
     id: int
+    user_id: UUID
     created_at: datetime
     updated_at: datetime

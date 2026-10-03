@@ -125,4 +125,5 @@ class StockUpdateEvent(BaseModel):
     model_id: int = 0
     # Para Shopee: shop_id do vendedor
     shop_id: int | None = None
+    external_seller_id: str  # seller_id (ML) ou shop_id (Shopee) - para busca de integração
     quantity: int
