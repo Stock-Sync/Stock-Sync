@@ -45,4 +45,23 @@ export default defineConfig([
       ],
     },
   },
+  {
+    /**
+     * Os tipos e o mock espelham os schemas do backend (snake_case), e
+     * renomear os campos quebraria a troca do mock pelo client HTTP real.
+     * A regra `camelcase` fica desligada apenas nesses arquivos.
+     */
+    files: [
+      "src/types/**/*.ts",
+      "src/mock/**/*.ts",
+      "src/lib/api/**/*.ts",
+      "src/features/**/*.test.tsx",
+      // Queries e formulários constroem payloads com os nomes dos schemas.
+      "src/features/**/queries.ts",
+      "src/features/stores/StoreFormPage.tsx",
+    ],
+    rules: {
+      camelcase: "off",
+    },
+  },
 ]);
