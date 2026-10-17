@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     shopee_partner_id: str = ""
     shopee_partner_key: str = ""
 
+    # JWT settings (shared with auth-service for token validation)
+    jwt_secret_key: str = "your-super-secret-jwt-key-change-in-production"
+    jwt_algorithm: str = "HS256"
+
+    # Cloudinary Configuration
+    cloudinary_cloud_name: str = ""
+    cloudinary_api_key: str = ""
+    cloudinary_api_secret: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

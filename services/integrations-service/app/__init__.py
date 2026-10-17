@@ -1,0 +1,1 @@
+from app import models  # noqa: F401  (registra as tabelas no metadata)

@@ -16,6 +16,43 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: auth-service
+      APP_VERSION: 0.1.0
+      DEBUG: "true"
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_auth
+      REDIS_URL: redis://redis:6379/1
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
+      JWT_ALGORITHM: HS256
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: 15
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: 7
+      COOKIE_DOMAIN: localhost
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: lax
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   catalog-service:
     build:
       context: ./services/catalog-service
@@ -54,8 +91,17 @@ services:
       APP_VERSION: 0.1.0
       DEBUG: "true"
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_integrations
+      REDIS_URL: redis://redis:6379/0
+      MERCADO_LIVRE_APP_ID: ${MERCADO_LIVRE_APP_ID:-}
+      MERCADO_LIVRE_CLIENT_SECRET: ${MERCADO_LIVRE_CLIENT_SECRET:-}
+      SHOPEE_PARTNER_ID: ${SHOPEE_PARTNER_ID:-}
+      SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:-}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
+      JWT_ALGORITHM: HS256
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   sales-service:
@@ -74,3 +120,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

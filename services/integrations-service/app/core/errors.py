@@ -35,3 +35,13 @@ class ConflictError(APIError):
 class BadRequestError(APIError):
     def __init__(self, message: str = "Bad request", details: Any | None = None) -> None:
         super().__init__(status_code=400, code="bad_request", message=message, details=details)
+
+
+class UnauthorizedError(APIError):
+    def __init__(self, message: str = "Unauthorized") -> None:
+        super().__init__(status_code=401, code="unauthorized", message=message)
+
+
+class ForbiddenError(APIError):
+    def __init__(self, message: str = "Forbidden") -> None:
+        super().__init__(status_code=403, code="forbidden", message=message)

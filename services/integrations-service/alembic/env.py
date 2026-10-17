@@ -1,4 +1,9 @@
+import sys
 from logging.config import fileConfig
+from pathlib import Path
+
+# Add the service root directory to Python path (contains app/)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import sqlmodel
 from alembic import context

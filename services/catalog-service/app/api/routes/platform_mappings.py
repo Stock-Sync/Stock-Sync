@@ -38,3 +38,15 @@ def get_platform_mapping(
     if mapping is None:
         raise NotFoundError("PlatformMapping")
     return mapping
+
+
+@router.delete("/{mapping_id}", status_code=204)
+def delete_platform_mapping(
+    mapping_id: int,
+    session: Session = Depends(get_session),
+):
+    mapping = session.get(PlatformMapping, mapping_id)
+    if mapping is None:
+        raise NotFoundError("PlatformMapping")
+    session.delete(mapping)
+    session.commit()

@@ -23,11 +23,11 @@ app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=li
 app.add_middleware(RequestLoggingMiddleware)
 register_exception_handlers(app)
 
-app.include_router(products.router, prefix="/products", tags=["products"])
-app.include_router(skus.router, prefix="/skus", tags=["skus"])
+app.include_router(products.router, prefix="/api/v1/products", tags=["products"])
+app.include_router(skus.router, prefix="/api/v1/skus", tags=["skus"])
 app.include_router(
     platform_mappings.router,
-    prefix="/platform-mappings",
+    prefix="/api/v1/platform-mappings",
     tags=["platform-mappings"],
 )
 
