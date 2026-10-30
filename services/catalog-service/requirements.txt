@@ -6,3 +6,5 @@ sqlalchemy==2.0.36
 sqlmodel==0.0.22
 alembic==1.13.3
 psycopg[binary]==3.2.3
+redis==5.1.1
+python-jose[cryptography]==3.3.0

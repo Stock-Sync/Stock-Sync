@@ -14,6 +14,21 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     catalog_service_url: str = "http://localhost:8001"
     integrations_service_url: str = "http://localhost:8003"
+    sales_service_url: str = "http://localhost:8004"
+
+    # Shared secret guarding service-to-service endpoints of other services
+    internal_service_secret: str = "your-internal-service-secret-change-in-production"
+
+    # JWT settings (shared with auth-service to resolve the tenant from cookies)
+    jwt_secret_key: str = "your-super-secret-jwt-key-change-in-production"
+    jwt_algorithm: str = "HS256"
+
+    # Background workers
+    consumer_enabled: bool = True
+    flusher_enabled: bool = True
+    flusher_interval_seconds: float = 3.0
+    stream_max_attempts: int = 5
+    stream_claim_min_idle_ms: int = 30000
 
     model_config = SettingsConfigDict(
         env_file=".env",

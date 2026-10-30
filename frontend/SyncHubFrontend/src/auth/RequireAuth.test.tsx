@@ -23,8 +23,8 @@ const authenticatedUser = {
   id: "1",
   name: "amoras",
   email: "amoras@example.com",
-  is_active: true,
-  created_at: "2026-01-01T00:00:00Z",
+  "is_active": true,
+  "created_at": "2026-01-01T00:00:00Z",
 };
 
 function renderRoutes(initialEntry: string) {
@@ -46,12 +46,12 @@ function renderRoutes(initialEntry: string) {
 }
 
 describe("RequireAuth", () => {
-  it("leva para o login quando não há sessão", () => {
+  it("leva para o login quando não há sessão", async () => {
     vi.mocked(authClient.me).mockRejectedValue(new Error("Not authenticated"));
 
     renderRoutes("/products/new");
 
-    expect(screen.getByText("Tela de login")).toBeInTheDocument();
+    expect(await screen.findByText("Tela de login")).toBeInTheDocument();
     expect(
       screen.queryByText("Formulário de produto")
     ).not.toBeInTheDocument();

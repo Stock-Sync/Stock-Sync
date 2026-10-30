@@ -128,7 +128,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw new ApiError(
       normalized?.code ?? "unknown",
       normalized?.message ?? "Unknown error",
-      normalized?.details
+      normalized?.details,
+      response.status
     );
   }
 

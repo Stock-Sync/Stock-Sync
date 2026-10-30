@@ -59,6 +59,22 @@ export interface CredentialResponse {
   updated_at: string;
 }
 
+/** Anúncio importado do Mercado Livre e persistido localmente. */
+export interface LocalMarketplaceItem {
+  item_id: string;
+  title: string;
+  price: number;
+  available_quantity: number;
+  status: string | null;
+  thumbnail: string | null;
+  permalink: string | null;
+  sku_id: number | null;
+  product_id: number | null;
+  updated_at: string | null;
+}
+
+const ML_BASE = "/api/v1/integrations/mercadolivre";
+
 export const integrationsClient = {
   // Mercado Livre OAuth
   async getMercadoLivreAuthUrl(): Promise<ConnectResponse> {
@@ -77,6 +93,11 @@ export const integrationsClient = {
   // Produtos
   async createMercadoLivreItem(payload: CreateItemRequest): Promise<CreateItemResponse> {
     return httpClient.post<CreateItemResponse>("/api/v1/integrations/mercadolivre/items", payload);
+  },
+
+  /** Anúncios importados/sincronizados localmente (MarkeplaceItem). */
+  async listLocalMercadoLivreItems(): Promise<LocalMarketplaceItem[]> {
+    return httpClient.get<LocalMarketplaceItem[]>(`${ML_BASE}/items/local`);
   },
 
   // Webhooks (called by Mercado Livre, not typically from frontend)

@@ -11,6 +11,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/stocksync_catalog"
     db_echo: bool = False
 
+    redis_url: str = "redis://localhost:6379/0"
+
+    # JWT Settings (must match auth-service so tenant_id can be resolved)
+    jwt_secret_key: str = "your-super-secret-jwt-key-change-in-production"
+    jwt_algorithm: str = "HS256"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

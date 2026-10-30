@@ -1,18 +1,17 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
-import json
 
 import cloudinary
 import cloudinary.uploader
 import httpx
 import redis.asyncio as redis
+from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.errors import APIError
 from app.models.marketplace_credential import Marketplace, MarketplaceCredential, MarketplaceItem
-from sqlmodel import Session, select
-
 
 ML_AUTH_URL = "https://auth.mercadolivre.com.br/authorization"
 ML_TOKEN_URL = "https://api.mercadolibre.com/oauth/token"
@@ -25,7 +24,9 @@ class MercadoLivreService:
         self.session = session
         self.client_id = settings.mercado_livre_app_id
         self.client_secret = settings.mercado_livre_client_secret
-        self.redirect_uri = "https://dreamt-roundness-tightwad.ngrok-free.dev/api/v1/auth/mercadolivre/callback"
+        self.redirect_uri = (
+            f"{settings.public_api_url.rstrip('/')}/api/v1/auth/mercadolivre/callback"
+        )
         self._redis: redis.Redis | None = None
         
         # Initialize Cloudinary
@@ -369,9 +370,11 @@ class MercadoLivreService:
             try:
                 # Extract source URLs from picture objects [{source: "..."}]
                 urls = [p.get("source", "") for p in cloudinary_urls if p.get("source")]
-                secure_urls = await self.upload_pictures(credential.access_token, urls)
-                # Mercado Libre /items endpoint expects {"source": "cloudinary_url"},
-                # not {"secure_url": "ml_url"}. Keep original Cloudinary URLs.
+                # Pre-register images on ML CDN via /pictures (optional pre-warming),
+                # but send the ORIGINAL Cloudinary URLs as `source` to /items.
+                # Mercado Libre's /items endpoint downloads from `source`; it cannot
+                # fetch from its own CDN secure_urls.
+                await self.upload_pictures(credential.access_token, urls)
                 item_data["pictures"] = [{"source": url} for url in urls]
             except httpx.HTTPStatusError as e:
                 details = {"status_code": e.response.status_code}
@@ -431,6 +434,12 @@ class MercadoLivreService:
         result["_sku_id"] = sku_id
         result["_product_id"] = product_id
         result["_description"] = description
+        # Preserve original Cloudinary URLs for local edit/recovery. Mercado Libre
+        # only returns its own CDN secure_urls, which cannot be used as `source`
+        # on PUT /items (ML cannot download from its own CDN).
+        result["_cloudinary_urls"] = [
+            p.get("source", "") for p in cloudinary_urls if p.get("source")
+        ]
 
         return result
 
@@ -443,8 +452,9 @@ class MercadoLivreService:
         # Upload new pictures if provided
         cloudinary_urls = item_data.get("pictures", [])
         if cloudinary_urls:
-            secure_urls = await self.upload_pictures(credential.access_token, cloudinary_urls)
-            item_data["pictures"] = [{"secure_url": url} for url in secure_urls]
+            # Send the URLs as `source` so Mercado Libre can download them.
+            # Do not re-upload ML CDN secure_urls to ML CDN again.
+            item_data["pictures"] = [{"source": url} for url in cloudinary_urls]
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.put(
@@ -530,6 +540,52 @@ class MercadoLivreService:
             )
             response.raise_for_status()
             return response.json()
+
+    async def get_order(self, tenant_id: str, order_id: str) -> dict[str, Any]:
+        """Get full order details (GET /orders/{id})."""
+        credential = await self.get_valid_credential(tenant_id)
+        if not credential:
+            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{ML_API_BASE}/orders/{order_id}",
+                headers={
+                    "Authorization": f"Bearer {credential.access_token}",
+                    "Accept": "application/json",
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def search_all_items(
+        self, tenant_id: str, page_size: int = 50, max_pages: int = 20
+    ) -> list[str]:
+        """Return ALL item ids of the connected seller (paginated search)."""
+        credential = await self.get_valid_credential(tenant_id)
+        if not credential:
+            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+
+        item_ids: list[str] = []
+        offset = 0
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for _ in range(max_pages):
+                response = await client.get(
+                    f"{ML_API_BASE}/users/{credential.ml_user_id}/items/search",
+                    params={"offset": offset, "limit": page_size},
+                    headers={"Authorization": f"Bearer {credential.access_token}"},
+                )
+                response.raise_for_status()
+                data = response.json()
+                results = data.get("results", [])
+                item_ids.extend(results)
+                total = data.get("paging", {}).get("total", len(item_ids))
+                offset += page_size
+                if offset >= total or not results:
+                    break
+                # Small pause to stay friendly to ML's rate limit (~25 req / 2s)
+                await asyncio.sleep(0.25)
+        return item_ids
 
     async def get_item_description(self, tenant_id: str, item_id: str) -> dict[str, Any]:
         """Get item description."""

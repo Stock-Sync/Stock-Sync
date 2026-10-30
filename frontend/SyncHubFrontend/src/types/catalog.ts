@@ -28,8 +28,10 @@ export function platformLabel(value: string): string {
 /** Espelha `ProductRead`. */
 export interface Product {
   id: number;
+  tenant_id: string;
   name: string;
   description: string | null;
+  pictures?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -37,6 +39,7 @@ export interface Product {
 /** Espelha `SKURead`. */
 export interface SKU {
   id: number;
+  tenant_id: string;
   product_id: number;
   internal_sku: string;
   price: number | null;
@@ -48,6 +51,7 @@ export interface SKU {
 /** Espelha `PlatformMappingRead` — é o "anúncio" vinculado a um SKU. */
 export interface PlatformMapping {
   id: number;
+  tenant_id: string;
   sku_id: number;
   platform: Platform;
   platform_sku: string;

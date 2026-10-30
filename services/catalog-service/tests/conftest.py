@@ -1,4 +1,5 @@
 import pytest
+from app.api.deps import get_tenant_id
 from app.db.session import get_session
 from app.main import app
 from fastapi.testclient import TestClient
@@ -24,7 +25,11 @@ def client(db_engine):
         with Session(db_engine) as session:
             yield session
 
+    def override_get_tenant_id():
+        return "test-tenant"
+
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_tenant_id] = override_get_tenant_id
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

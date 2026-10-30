@@ -1116,81 +1116,101 @@ export function ListingWizardPage() {
   const lastCategoryId = useRef<string | null>(null);
   const [mlItemId, setMlItemId] = useState<string | null>(null);
   const [editError, setEditError] = useState("");
+  const [mlItemError, setMlItemError] = useState(false);
+
+  const load = async () => {
+    setEditError("");
+    setMlItemError(false);
+
+    try {
+      const mapping = await catalogClient.getPlatformMapping(
+        Number(editingListingId!)
+      );
+      const sku = await catalogClient.getSku(mapping.sku_id);
+      const product = await catalogClient.getProduct(sku.product_id);
+
+      let mlItem: MlItemResponse | null = null;
+      if (mapping.platform_product_id) {
+        try {
+          mlItem = await mercadolibreClient.getMlItem(
+            mapping.platform_product_id
+          );
+          setMlItemId(mapping.platform_product_id);
+        } catch (exc: any) {
+          const mlErrorMessage =
+            exc?.message
+              ? `Falha ao carregar dados do Mercado Livre: ${exc.message}`
+              : "Falha ao carregar dados do Mercado Livre.";
+          if (exc?.status === 401 || exc?.code === "unauthorized") {
+            setMlItemError(
+              true
+            ); // handled below with specific message
+            setEditError(
+              "Sua sessão do Mercado Livre expirou. Renove o token na página de Integrações e tente novamente."
+            );
+            return;
+          }
+          setEditError(mlErrorMessage);
+          setMlItemError(true);
+          return;
+        }
+      }
+
+      setData({
+        product: {
+          id: product.id,
+          skuId: sku.id,
+          sku: sku.internal_sku,
+          title: product.name,
+          price: sku.price ?? 0,
+          stockQuantity: sku.stock_quantity,
+          description: product.description ?? "",
+        },
+        category: null,
+        title: mlItem?.title ?? product.name,
+        listingTypeId: (mlItem?.listing_type_id ??
+          "gold_special") as ListingType,
+        condition: (mlItem?.condition ?? "new") as ListingCondition,
+        price: String(mlItem?.price ?? sku.price ?? 0),
+        quantity: String(mlItem?.available_quantity ?? sku.stock_quantity),
+        description: "",
+        pictures: mlItem?._cloudinary_urls
+          ? mlItem._cloudinary_urls.map((url: string) => ({
+              source: url,
+              readOnly: false,
+            }))
+          : mlItem?.pictures
+            ? mlItem.pictures.map((p) => ({
+                source: p.secure_url ?? "",
+                readOnly: true,
+              }))
+            : mlItem?.thumbnail
+              ? [{ source: mlItem.thumbnail, readOnly: true }]
+              : [],
+        attributes: (mlItem?.attributes ?? []).map((a) => ({
+          id: a.id,
+          name: a.id,
+          type: "string",
+          value_type: "string",
+          required: false,
+          value_name: a.value_name ?? "",
+          value_id: a.value_id ?? undefined,
+        })),
+      });
+    } catch {
+      setEditError(
+        "Não foi possível carregar os dados do anúncio para edição."
+      );
+    }
+  };
 
   useEffect(() => {
-    let cancelled = false;
     if (!editingListingId || editInitialized.current) {
       return;
     }
 
-    const load = async () => {
-      setEditError("");
-      try {
-        const mapping = await catalogClient.getPlatformMapping(
-          Number(editingListingId!)
-        );
-        const sku = await catalogClient.getSku(mapping.sku_id);
-        const product = await catalogClient.getProduct(sku.product_id);
-
-        let mlItem: MlItemResponse | null = null;
-        if (mapping.platform_product_id) {
-          try {
-            mlItem = await mercadolibreClient.getMlItem(
-              mapping.platform_product_id
-            );
-            setMlItemId(mapping.platform_product_id);
-          } catch {
-            // Item pode não estar mais disponível no ML.
-          }
-        }
-
-        if (cancelled) {
-          return;
-        }
-        setData({
-          product: {
-            id: product.id,
-            skuId: sku.id,
-            sku: sku.internal_sku,
-            title: product.name,
-            price: sku.price ?? 0,
-            stockQuantity: sku.stock_quantity,
-            description: product.description ?? "",
-          },
-          category: null,
-          title: mlItem?.title ?? product.name,
-          listingTypeId: (mlItem?.listing_type_id ??
-            "gold_special") as ListingType,
-          condition: (mlItem?.condition ?? "new") as ListingCondition,
-          price: String(mlItem?.price ?? sku.price ?? 0),
-          quantity: String(mlItem?.available_quantity ?? sku.stock_quantity),
-          description: "",
-          pictures: mlItem?.pictures
-            ? mlItem.pictures.map((p) => ({ source: p.secure_url ?? "" }))
-            : mlItem?.thumbnail
-              ? [{ source: mlItem.thumbnail }]
-              : [],
-          attributes: (mlItem?.attributes ?? []).map((a) => ({
-            id: a.id,
-            name: a.id,
-            type: "string",
-            value_type: "string",
-            required: false,
-            value_name: a.value_name ?? "",
-            value_id: a.value_id ?? undefined,
-          })),
-        });
-      } catch {
-        setEditError(
-          "Não foi possível carregar os dados do anúncio para edição."
-        );
-      }
-    };
-
+    editInitialized.current = true;
     load();
-    return () => {
-      cancelled = true;
-    };
   }, [editingListingId]);
 
   useEffect(() => {
@@ -1252,6 +1272,8 @@ export function ListingWizardPage() {
             e.title = "Informe o título do anúncio.";
           } else if (d.title.length > 60) {
             e.title = "O título deve ter no máximo 60 caracteres.";
+          } else if (d.title.trim().length < 10) {
+            e.title = "O título é muito curto. Inclua características importantes do produto, como marca, modelo ou categoria (mínimo 10 caracteres).";
           }
           const price = parseDecimal(d.price);
           if (Number.isNaN(price) || price <= 0) {
@@ -1304,6 +1326,13 @@ export function ListingWizardPage() {
     setStep((prev) => (prev - 1) as WizardStep);
   }, []);
 
+  const handleRetry = useCallback(() => {
+    setEditError("");
+    setMlItemError(false);
+    editInitialized.current = false;
+    load();
+  }, [load]);
+
   const handlePublish = async () => {
     const stepErrors = validateStep(3);
     const attrErrors = validateStep(4);
@@ -1335,11 +1364,24 @@ export function ListingWizardPage() {
         if (!mlItemId) {
           throw new Error("Item do Mercado Livre não identificado.");
         }
+        // On edit, only send Cloudinary URLs as `source`. Mercado Libre's
+        // /items endpoint downloads from `source`; it cannot fetch from its
+        // own CDN secure_urls. When no new Cloudinary images were added,
+        // omit `pictures` entirely so ML keeps the existing images.
+        const cloudinaryPictures = data.pictures.filter((p) =>
+          p.source.includes("cloudinary.com")
+        );
         const payload: UpdateMlItemRequest = {
           title: data.title,
           price,
           available_quantity: quantity,
-          pictures: data.pictures.map((p) => ({ source: p.source })),
+          ...(cloudinaryPictures.length > 0
+            ? {
+                pictures: cloudinaryPictures.map((p) => ({
+                  source: p.source,
+                })),
+              }
+            : {}),
           attributes,
         };
         if (data.description.trim()) {
@@ -1588,7 +1630,10 @@ export function ListingWizardPage() {
                   </Button>
 
                   {step === 5 ? (
-                    <Button onClick={handlePublish} disabled={submitting}>
+                    <Button
+                      onClick={handlePublish}
+                      disabled={submitting || mlItemError}
+                    >
                       {submitting
                         ? "Processando…"
                         : isEdit
@@ -1613,6 +1658,34 @@ export function ListingWizardPage() {
             className="rounded-xl bg-red-50 border border-red-100 p-4 text-sm text-red-700"
           >
             {formError}
+          </div>
+        )}
+
+        {mlItemError && (
+          <div
+            role="alert"
+            className="fixed inset-0 z-50 flex items-center justify-center"
+          >
+            <div
+              className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700 max-w-md w-full shadow-lg"
+            >
+              <h3 className="text-lg font-semibold mb-2">
+                Erro ao carregar do Mercado Livre
+              </h3>
+              <p className="text-sm mb-4">
+                Não foi possível buscar as imagens e dados do anúncio no
+                Mercado Livre. Verifique sua conexão e o token de integração.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={handleRetry}
+                  className="text-red-700 hover:bg-red-100"
+                >
+                  Tentar novamente
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>

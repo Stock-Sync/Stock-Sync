@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Hexagon, House, LayoutDashboard, Megaphone, Link2 } from "lucide-react";
+import { Hexagon, House, LayoutDashboard, Megaphone, Link2, ShoppingBag } from "lucide-react";
 import { paths } from "../../routes/paths";
 
 export interface NavItem {
@@ -19,5 +19,6 @@ export const navItems: NavItem[] = [
   { label: "Produtos", to: paths.products, icon: Hexagon },
   { label: "Lojas", to: paths.stores, icon: House },
   { label: "Anúncios", to: paths.listings, icon: Megaphone },
+  { label: "Vendas", to: paths.orders, icon: ShoppingBag },
   { label: "Integrações", to: paths.integrations, icon: Link2 },
 ];

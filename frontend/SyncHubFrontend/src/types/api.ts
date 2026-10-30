@@ -17,12 +17,15 @@ export interface ApiErrorBody {
 export class ApiError extends Error {
   code: string;
   details?: unknown;
+  /** HTTP status when the error came from a real response. */
+  status?: number;
 
-  constructor(code: string, message: string, details?: unknown) {
+  constructor(code: string, message: string, details?: unknown, status?: number) {
     super(message);
     this.name = "ApiError";
     this.code = code;
     this.details = details;
+    this.status = status;
   }
 }
 

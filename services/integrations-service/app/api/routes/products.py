@@ -15,8 +15,6 @@ from app.schemas.marketplace_credential import (
     ItemCreateRequest,
     ItemUpdateRequest,
     ItemDescriptionRequest,
-    ItemResponse,
-    ItemListResponse,
     CredentialResponse,
     MLPictureUploadResponse,
     CategoryAttributesResponse,
@@ -256,7 +254,7 @@ async def create_ml_item_description(
         raise HTTPException(status_code=500, detail=f"Failed to create description: {str(e)}")
 
 
-@router.get("/items", response_model=ItemListResponse)
+@router.get("/items", response_model=dict)
 async def list_ml_items(
     request: Request,
     page: int = Query(1, ge=1),
@@ -272,33 +270,85 @@ async def list_ml_items(
     
     try:
         result = await ml_service.list_items(tenant_id, page, limit, search, status)
-        return ItemListResponse(
-            items=[ItemResponse.model_validate(item) for item in result["items"]],
-            page=result["page"],
-            limit=result["limit"],
-            total=result["total"],
-            total_pages=result["total_pages"],
-        )
+        return {
+            "items": result["items"],
+            "page": result["page"],
+            "limit": result["limit"],
+            "total": result["total"],
+            "total_pages": result["total_pages"],
+        }
     except APIError:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list items: {str(e)}")
 
 
-@router.get("/items/{item_id}", response_model=ItemResponse)
+@router.get("/items/local", response_model=list[dict])
+def list_local_ml_items(
+    request: Request,
+    session: Session = Depends(get_session),
+    limit: int = Query(200, ge=1, le=500),
+):
+    """List locally synced marketplace items for the authenticated tenant.
+
+    The manual listings sync stores every imported item in ``MarketplaceItem``.
+    Listing them here lets the UI cross-reference imported listings with the
+    local ``PlatformMapping`` rows and highlight items that lost their link.
+    """
+    tenant_id = get_tenant_id(request)
+
+    items = session.exec(
+        select(MarketplaceItem)
+        .where(MarketplaceItem.tenant_id == tenant_id)
+        .order_by(MarketplaceItem.updated_at.desc())
+        .limit(limit)
+    ).all()
+
+    return [
+        {
+            "item_id": item.item_id,
+            "title": item.title,
+            "price": item.price,
+            "available_quantity": item.available_quantity,
+            "status": item.status,
+            "thumbnail": item.thumbnail,
+            "permalink": item.permalink,
+            "sku_id": item.sku_id,
+            "product_id": item.product_id,
+            "updated_at": item.updated_at,
+        }
+        for item in items
+    ]
+
+
+@router.get("/items/{item_id}", response_model=dict)
 async def get_ml_item(
     item_id: str,
     request: Request,
     session: Session = Depends(get_session),
 ):
-    """Get single item details."""
+    """Get single item details, merged with locally stored Cloudinary URLs."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
-    
+
     try:
         item = await ml_service.get_item(tenant_id, item_id)
-        return ItemResponse.model_validate(item)
+
+        # Merge locally persisted Cloudinary URLs so the frontend can use them
+        # as `source` on update (ML CDN secure_urls cannot be downloaded by ML).
+        local_item = session.exec(
+            select(MarketplaceItem).where(
+                MarketplaceItem.item_id == item_id,
+                MarketplaceItem.tenant_id == tenant_id,
+            )
+        ).first()
+        if local_item and isinstance(local_item.raw_payload, dict):
+            cloudinary_urls = local_item.raw_payload.get("_cloudinary_urls")
+            if cloudinary_urls:
+                item["_cloudinary_urls"] = cloudinary_urls
+
+        return item
     except APIError:
         raise
     except Exception as e:
@@ -319,6 +369,16 @@ async def update_ml_item(
     
     try:
         result = await ml_service.update_item(tenant_id, item_id, payload.model_dump(exclude_none=True))
+
+        # Preserve Cloudinary URLs for local edit/recovery.
+        # ML only returns its own CDN secure_urls; we need Cloudinary URLs as
+        # `source` for future updates. Keep existing ones if the user didn't
+        # change images.
+        if payload.pictures is not None:
+            result["_cloudinary_urls"] = [p.source for p in payload.pictures]
+        elif result.get("_cloudinary_urls"):
+            pass  # keep existing _cloudinary_urls from ML response (if any)
+
         # Sync to local database
         credential = await ml_service.get_valid_credential(tenant_id)
         if credential:

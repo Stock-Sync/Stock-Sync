@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { RequireAuth } from "../auth/RequireAuth";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { LandingPage } from "../features/auth/LandingPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { RegisterPage } from "../features/auth/RegisterPage";
 import { ProductsListPage } from "../features/products/ProductsListPage";
@@ -21,28 +22,29 @@ import { paths } from "./paths";
 /**
  * Rotas da aplicação.
  *
- * Liberadas sem sessão (comportamento dos mockups 1, 4 e 5):
- *   /               dashboard do visitante
- *   /products       listagem do catálogo
- *   /products/:id   detalhe do produto
- *   /login
- *   /register
+ * Liberadas sem sessão (páginas públicas):
+ *   /            landing com apresentação da solução (hero, sobre, FAQ, suporte)
+ *   /login       página de login (formulário de autenticação)
+ *   /register    página de cadastro (formulário de criação de conta)
  *
- * Protegidas por <RequireAuth>: tudo que cria ou edita dados, além do perfil,
- * das lojas, dos anúncios e dos pedidos. Sem sessão, o usuário é levado ao
- * login e retorna ao destino original depois de autenticar.
+ * Protegidas por <RequireAuth>: dashboard, catálogo, produtos, perfil, lojas,
+ * anúncios, pedidos, integrações e tudo que cria ou edita dados. Sem sessão, o
+ * usuário é levado ao login (/login) e retorna ao destino original depois de
+ * autenticar.
  */
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<AppShell />}>
-        <Route path={paths.dashboard} element={<DashboardPage />} />
-        <Route path={paths.login} element={<LoginPage />} />
-        <Route path={paths.register} element={<RegisterPage />} />
-        <Route path={paths.products} element={<ProductsListPage />} />
-        <Route path={`${paths.products}/:id`} element={<ProductDetailPage />} />
+      <Route path={paths.landing} element={<LandingPage />} />
+      <Route path={paths.login} element={<LoginPage />} />
+      <Route path={paths.register} element={<RegisterPage />} />
 
-        <Route element={<RequireAuth />}>
+      <Route element={<RequireAuth />}>
+        <Route element={<AppShell />}>
+          <Route path={paths.dashboard} element={<DashboardPage />} />
+          <Route path={paths.products} element={<ProductsListPage />} />
+          <Route path={`${paths.products}/:id`} element={<ProductDetailPage />} />
+
           <Route
             path={paths.productNew}
             element={<ProductFormPage mode="create" />}
@@ -63,9 +65,9 @@ export function AppRoutes() {
           <Route path={paths.listingNew} element={<ListingWizardPage />} />
           <Route path={paths.orders} element={<OrdersPage />} />
         </Route>
-
-        <Route path="*" element={<Navigate to={paths.dashboard} replace />} />
       </Route>
+
+      <Route path="*" element={<Navigate to={paths.landing} replace />} />
     </Routes>
   );
 }

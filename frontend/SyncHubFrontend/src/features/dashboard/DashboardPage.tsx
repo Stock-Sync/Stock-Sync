@@ -119,14 +119,11 @@ export function DashboardPage() {
       disabled: runSync.isPending,
       onClick: async () => {
         try {
-          const created = await runSync.mutateAsync();
+          const result = await runSync.mutateAsync();
           notify({
             tone: "success",
             title: "Sincronização concluída",
-            description:
-              created > 0
-                ? `${created} anúncio(s) publicado(s).`
-                : "Todos os produtos já estão anunciados.",
+            description: `${result.items_upserted} anúncio(s) sincronizado(s), ${result.mappings_created} vínculo(s) criado(s).`,
           });
         } catch {
           notify({ tone: "error", title: "Falha na sincronização" });

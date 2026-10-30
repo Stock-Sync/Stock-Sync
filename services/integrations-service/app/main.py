@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app.api.handlers import register_exception_handlers
 from app.api.middleware import RequestLoggingMiddleware
-from app.api.routes import auth, products, webhooks
+from app.api.routes import auth, internal, products, webhooks
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.session import get_session
@@ -26,6 +26,7 @@ register_exception_handlers(app)
 app.include_router(auth.router)
 app.include_router(products.router)
 app.include_router(webhooks.router)
+app.include_router(internal.router)
 
 
 @app.get("/health")

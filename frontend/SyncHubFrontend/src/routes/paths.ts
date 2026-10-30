@@ -6,7 +6,8 @@
  * e testes.
  */
 export const paths = {
-  dashboard: "/",
+  landing: "/",
+  dashboard: "/dashboard",
   login: "/login",
   register: "/register",
 

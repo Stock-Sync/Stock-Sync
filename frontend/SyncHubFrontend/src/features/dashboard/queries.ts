@@ -1,13 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { salesClient } from "../../lib/api/sales-client";
+import { syncClient } from "../../lib/api/sync-client";
+import { localMarketplaceItemsKey } from "../listings/queries";
 import { queryKeys } from "../products/queries";
-
-export function useOrders() {
-  return useQuery({
-    queryKey: queryKeys.orders,
-    queryFn: () => salesClient.listOrders(),
-  });
-}
 
 interface Notification {
   id: number;
@@ -43,22 +37,22 @@ export function useMarkNotificationsAsRead() {
 }
 
 /**
- * "Sincronizar Tudo" do dashboard.
+ * "Sincronizar Tudo" do dashboard e "Sincronizar" dos anúncios.
  *
- * Hoje roda contra o mock; quando o sync-service expor o endpoint, substitua
- * apenas pela chamada HTTP.
+ * Chama o sync-service (POST /api/v1/sync/listings/pull), que importa todos
+ * os anúncios do Mercado Livre para a base local e cria os vínculos que
+ * faltam. Retorna o resumo do pull para o toast.
  */
 export function useRunSync() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async () => {
-      // Sync service not implemented yet
-      return 0;
-    },
+    mutationFn: () => syncClient.pullListings(),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.listings });
+      void queryClient.invalidateQueries({ queryKey: localMarketplaceItemsKey });
       void queryClient.invalidateQueries({ queryKey: queryKeys.products });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orders });
     },
   });
 }

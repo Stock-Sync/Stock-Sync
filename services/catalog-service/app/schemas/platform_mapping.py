@@ -30,5 +30,6 @@ class PlatformMappingRead(PlatformMappingBase):
     model_config = SQLModelConfig(from_attributes=True)
 
     id: int
+    tenant_id: str
     created_at: datetime
     updated_at: datetime

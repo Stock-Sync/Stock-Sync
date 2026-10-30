@@ -2,8 +2,10 @@ import { httpClient } from "./http-client";
 
 export interface Product {
   id: number;
+  tenant_id: string;
   name: string;
   description: string | null;
+  pictures?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -11,15 +13,18 @@ export interface Product {
 export interface ProductCreate {
   name: string;
   description?: string;
+  pictures?: string[];
 }
 
 export interface ProductUpdate {
   name?: string;
   description?: string;
+  pictures?: string[];
 }
 
 export interface SKU {
   id: number;
+  tenant_id: string;
   product_id: number;
   internal_sku: string;
   price: number;
@@ -52,6 +57,7 @@ export interface PlatformMappingCreate {
 
 export interface PlatformMapping {
   id: number;
+  tenant_id: string;
   sku_id: number;
   platform: "mercado_livre" | "shopee";
   platform_sku: string;

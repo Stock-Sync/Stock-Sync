@@ -46,6 +46,8 @@ export interface MlItemResponse {
   category_id?: string;
   pictures?: Array<{ secure_url: string }>;
   attributes?: Array<{ id: string; value_name: string; value_id: string | null }>;
+  /** Cloudinary URLs persistidas localmente para reedição. */
+  _cloudinary_urls?: string[];
 }
 
 /** Payload para criação de item (POST /items). */

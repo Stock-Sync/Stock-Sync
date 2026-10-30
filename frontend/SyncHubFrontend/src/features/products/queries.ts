@@ -28,6 +28,11 @@ export const queryKeys = {
 export function useProductViews() {
   const query = useQuery({
     queryKey: queryKeys.products,
+    // Stock deducted by marketplace sales flows through Redis Streams into
+    // the catalog; refetch on focus/interval so the list reflects it without
+    // a manual reload.
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
     queryFn: async () => {
       const [products, skus] = await Promise.all([
         catalogClient.listProducts(),
@@ -56,6 +61,20 @@ export function useProductView(id: number) {
   return { product, isPending, isError, error };
 }
 
+/** Anúncios ativos vinculados a um SKU (usado no diálogo de exclusão). */
+export function useProductListings(skuId: number | undefined) {
+  return useQuery({
+    queryKey: [...queryKeys.listings, "sku", skuId] as const,
+    enabled: skuId !== undefined,
+    queryFn: async () => {
+      const mappings = await catalogClient.listPlatformMappings();
+      return mappings.filter(
+        (mapping) => mapping.sku_id === skuId && mapping.is_active
+      );
+    },
+  });
+}
+
 /**
  * Cria produto + SKU em uma única mutação.
  *
@@ -72,10 +91,12 @@ export function useCreateProduct() {
       description: string;
       price: number;
       stockQuantity: number;
+      pictures: { source: string }[];
     }) => {
       const product = await catalogClient.createProduct({
         name: input.title,
         description: input.description,
+        pictures: input.pictures.map((p) => p.source),
       });
       const skuPayload: SKUCreate = {
         product_id: product.id,
@@ -104,10 +125,12 @@ export function useUpdateProduct() {
       description: string;
       price: number;
       stockQuantity: number;
+      pictures: { source: string }[];
     }) => {
       const product = await catalogClient.updateProduct(input.id, {
         name: input.title,
         description: input.description,
+        pictures: input.pictures.map((p) => p.source),
       });
       const sku = await catalogClient.updateSku(input.skuId, {
         internal_sku: input.sku,
@@ -123,10 +146,10 @@ export function useUpdateProduct() {
 }
 
 /**
- * Remove o produto e seus SKUs.
+ * Arquiva o produto e seus SKUs.
  *
- * `Promise.all` é intencional: o backend faz o mesmo ao remover em cascata e
- * não é seguro deixar órfãos.
+ * O backend faz o soft delete do produto, dos SKUs e desativa os vínculos
+ * em uma única operação; não é necessário chamar `deleteSku` depois.
  */
 export function useDeleteProduct() {
   const queryClient = useQueryClient();
@@ -134,7 +157,6 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: async (product: ProductView) => {
       await catalogClient.deleteProduct(product.productId);
-      await catalogClient.deleteSku(product.skuId);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.products });

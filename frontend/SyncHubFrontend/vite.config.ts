@@ -26,22 +26,36 @@ export default defineConfig({
       '/api/v1/products': {
         target: 'http://localhost:8001',
         changeOrigin: true,
+        cookieDomainRewrite: { 'localhost': '' },
+        cookiePathRewrite: { '/': '/' },
       },
       '/api/v1/skus': {
         target: 'http://localhost:8001',
         changeOrigin: true,
+        cookieDomainRewrite: { 'localhost': '' },
+        cookiePathRewrite: { '/': '/' },
       },
       '/api/v1/platform-mappings': {
         target: 'http://localhost:8001',
         changeOrigin: true,
+        cookieDomainRewrite: { 'localhost': '' },
+        cookiePathRewrite: { '/': '/' },
       },
       '/api/v1/stores': {
         target: 'http://localhost:8001',
         changeOrigin: true,
+        cookieDomainRewrite: { 'localhost': '' },
+        cookiePathRewrite: { '/': '/' },
       },
       '/api/v1/orders': {
         target: 'http://localhost:8004',
         changeOrigin: true,
+      },
+      '/api/v1/sync': {
+        target: 'http://localhost:8002',
+        changeOrigin: true,
+        cookieDomainRewrite: { 'localhost': '' },
+        cookiePathRewrite: { '/': '/' },
       },
       // Auth service LAST (shortest prefix)
       '/api/v1/auth': {

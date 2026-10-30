@@ -29,8 +29,14 @@ export interface Order {
   id: number;
   marketplace: string;
   marketplace_order_id: string;
-  internal_sku: string;
+  marketplace_item_id: string;
+  internal_sku: string | null;
+  sku_id: number | null;
+  item_title: string | null;
+  thumbnail_url: string | null;
+  buyer_nickname: string | null;
   quantity: number;
+  unit_price: number | null;
   total_amount: number;
   currency: string;
   status: string;

@@ -160,10 +160,13 @@ function ProductFormFields({
               Mínimo 1 imagem, máximo 12. A primeira deve ter fundo branco (500x500px mínimo).
             </p>
             <CloudinaryUploader
-              onUploadComplete={(urls) => setValues((current) => ({
-                ...current,
-                pictures: [...current.pictures, ...urls.map((url) => ({ source: url }))],
-              }))}
+              value={values.pictures.map((p) => p.source)}
+              onChange={(urls) =>
+                setValues((current) => ({
+                  ...current,
+                  pictures: urls.map((source) => ({ source })),
+                }))
+              }
               maxFiles={12}
               folder="stocksync/products"
             />
@@ -193,7 +196,7 @@ function toFormValues(product: ProductView): ProductFormValues {
     description: product.description,
     price: String(product.price),
     stockQuantity: String(product.stockQuantity),
-    pictures: [],
+    pictures: product.pictures.map((source) => ({ source })),
   };
 }
 
@@ -244,8 +247,13 @@ export function ProductFormPage({ mode }: { mode: "create" | "edit" }) {
       notify({ tone: "success", title: "Produto atualizado" });
       navigate(paths.productDetail(current.productId));
     } catch (caught) {
-      if (caught instanceof ApiError && caught.code === "conflict") {
-        setServerErrors({ sku: caught.message });
+      if (
+        caught instanceof ApiError &&
+        (caught.status === 409 || caught.code === "conflict")
+      ) {
+        setServerErrors({
+          sku: `O SKU "${values.sku.trim()}" pertence a um produto desativado/arquivado e não pode ser reutilizado, para preservar o histórico financeiro.`,
+        });
         return;
       }
       notify({

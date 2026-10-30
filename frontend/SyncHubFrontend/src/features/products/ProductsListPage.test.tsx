@@ -1,7 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { ProductsListPage } from "./ProductsListPage";
+import { mercadolibreClient } from "../../lib/api/mercadolibre-client";
 import { renderWithProviders } from "../../test/utils";
+
+vi.mock("../../lib/api/mercadolibre-client", () => ({
+  mercadolibreClient: {
+    updateMlItem: vi.fn().mockResolvedValue({ id: "MLB1", status: "paused" }),
+  },
+}));
 
 // Mock the catalog client for tests.
 // O catálogo é stateful: o deleteProduct remove o produto da lista devolvida
@@ -29,6 +36,20 @@ vi.mock("../../lib/api/catalog-client", () => ({
       deletedProductIds.add(id);
     }),
     deleteSku: vi.fn().mockResolvedValue(undefined),
+    listPlatformMappings: vi.fn().mockResolvedValue([
+      {
+        id: 1,
+        tenant_id: "test-tenant",
+        sku_id: 1,
+        platform: "mercado_livre",
+        platform_sku: "ML-1",
+        platform_product_id: "MLB1",
+        platform_variant_id: null,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]),
     listMappings: vi.fn().mockResolvedValue([]),
     createMappingForSku: vi.fn().mockResolvedValue({ id: 1, sku_id: 1, platform: "mercadolivre", platform_sku: "ML-1", platform_product_id: "1", platform_variant_id: "1", is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
     deleteMapping: vi.fn().mockResolvedValue(undefined),
@@ -45,6 +66,10 @@ vi.mock("../../lib/api/auth-client", () => ({
 }));
 
 describe("ProductsListPage", () => {
+  beforeEach(() => {
+    deletedProductIds.clear();
+  });
+
   it("mostra o produto semeado na tabela", async () => {
     renderWithProviders(<ProductsListPage />);
 
@@ -85,6 +110,26 @@ describe("ProductsListPage", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("aborta a exclusão quando a pausa do anúncio falha", async () => {
+    const { user } = renderWithProviders(<ProductsListPage />);
+
+    await screen.findByText("Titulo");
+    await user.click(screen.getByRole("button", { name: "Apagar Titulo" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText(/Mercado Livre \(ML-1\)/);
+    vi.mocked(mercadolibreClient.updateMlItem).mockRejectedValueOnce(
+      new Error("ML unavailable")
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Apagar" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Titulo")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
   it("pede confirmação antes de apagar", async () => {
     const { user } = renderWithProviders(<ProductsListPage />);
 
@@ -93,12 +138,23 @@ describe("ProductsListPage", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Apagar produto")).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText(/Mercado Livre \(ML-1\)/)
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("checkbox", {
+        name: /Pausar\/Encerrar os anúncios no Mercado Livre/i,
+      })
+    ).toBeChecked();
 
     await user.click(within(dialog).getByRole("button", { name: "Apagar" }));
 
     await waitFor(() => {
       // Product deleted successfully
       expect(screen.queryByText("Titulo")).not.toBeInTheDocument();
+    });
+    expect(mercadolibreClient.updateMlItem).toHaveBeenCalledWith("MLB1", {
+      status: "paused",
     });
   });
 });

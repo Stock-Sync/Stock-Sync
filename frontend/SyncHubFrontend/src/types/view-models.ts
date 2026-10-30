@@ -16,6 +16,7 @@ export interface ProductView {
   description: string;
   price: number;
   stockQuantity: number;
+  pictures: string[];
   updatedAt: string;
 }
 
@@ -29,6 +30,7 @@ export function toProductView(product: Product, sku: SKU): ProductView {
     description: product.description ?? "",
     price: sku.price ?? 0,
     stockQuantity: sku.stock_quantity,
+    pictures: product.pictures ?? [],
     updatedAt: sku.updated_at,
   };
 }

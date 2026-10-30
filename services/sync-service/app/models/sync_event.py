@@ -7,6 +7,8 @@ from sqlmodel import Field, SQLModel
 class SyncEvent(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     event_type: str = Field(index=True, min_length=1, max_length=100)
+    # Stream-level idempotency key (unique): redelivered entries are skipped.
+    dedupe_key: str | None = Field(default=None, unique=True, index=True, max_length=200)
     payload: dict = Field(default_factory=dict, sa_column=Column(JSON))
     status: str = Field(default="pending", index=True, max_length=20)
     retry_count: int = Field(default=0, ge=0)

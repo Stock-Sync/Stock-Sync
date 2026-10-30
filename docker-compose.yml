@@ -63,8 +63,12 @@ services:
       APP_VERSION: 0.1.0
       DEBUG: "true"
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_catalog
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   sync-service:
@@ -77,8 +81,17 @@ services:
       APP_VERSION: 0.1.0
       DEBUG: "true"
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_sync
+      REDIS_URL: redis://redis:6379/0
+      CATALOG_SERVICE_URL: http://catalog-service:8000
+      INTEGRATIONS_SERVICE_URL: http://integrations-service:8000
+      SALES_SERVICE_URL: http://sales-service:8000
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
+      JWT_ALGORITHM: HS256
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   integrations-service:
@@ -96,6 +109,10 @@ services:
       MERCADO_LIVRE_CLIENT_SECRET: ${MERCADO_LIVRE_CLIENT_SECRET:-}
       SHOPEE_PARTNER_ID: ${SHOPEE_PARTNER_ID:-}
       SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:-}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8003}
+      ML_WEBHOOK_SECRET: ${ML_WEBHOOK_SECRET:-}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
       JWT_ALGORITHM: HS256
     depends_on:
@@ -114,6 +131,7 @@ services:
       APP_VERSION: 0.1.0
       DEBUG: "true"
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_sales
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
     depends_on:
       postgres:
         condition: service_healthy

@@ -13,10 +13,13 @@ interface RedirectState {
 }
 
 /**
- * Tela de login (Imagem 2).
+ * Tela de login.
  *
- * Após autenticar, retorna o usuário à rota que originou o redirect. É o que
- * faz "Criar Produto" deslogado abrir o formulário preenchido pós-login.
+ * A lógica de autenticação (formulário, endpoint e redirecionamento) vive
+ * aqui. Ao clicar em "Entrar" ou "Criar conta" na navbar da landing, o
+ * usuário é redirecionado para esta página.
+ *
+ * Após autenticar, retorna o usuário à rota que originou o redirect.
  */
 export function LoginPage() {
   const { login, isLoading } = useAuth();
@@ -130,7 +133,7 @@ export function LoginPage() {
           </p>
 
           <Link
-            to={paths.dashboard}
+            to={paths.landing}
             className="block text-center text-sm font-medium text-brand-700 hover:underline"
           >
             Voltar ao início

@@ -14,8 +14,10 @@ import type { Column } from "../../components/ui/Table";
 import { useToast } from "../../components/ui/toast-context";
 import { formatCurrency, formatDateTime } from "../../lib/format";
 import { paths } from "../../routes/paths";
+import { platformLabel } from "../../types/catalog";
 import type { ProductView } from "../../types/view-models";
-import { useDeleteProduct, useProductViews } from "./queries";
+import { usePauseMlListings } from "../listings/queries";
+import { useDeleteProduct, useProductListings, useProductViews } from "./queries";
 
 type ViewMode = "table" | "grid";
 
@@ -39,6 +41,52 @@ export function ProductsListPage() {
   const [pendingDeletion, setPendingDeletion] = useState<ProductView | null>(
     null
   );
+  const [pauseOnDelete, setPauseOnDelete] = useState(true);
+  const pauseListings = usePauseMlListings();
+  const {
+    data: pendingListings = [],
+    isPending: listingsPending,
+  } = useProductListings(pendingDeletion?.skuId);
+  const pausableListings = useMemo(
+    () =>
+      pendingListings.filter(
+        (listing) =>
+          listing.platform === "mercado_livre" &&
+          Boolean(listing.platform_product_id)
+      ),
+    [pendingListings]
+  );
+
+  const isDeleting = deleteProduct.isPending || pauseListings.isPending;
+
+  const deletionDescription = useMemo(() => {
+    if (!pendingDeletion) {
+      return "";
+    }
+    if (listingsPending) {
+      return `Verificando anúncios vinculados a "${pendingDeletion.title}"...`;
+    }
+    if (pendingListings.length === 0) {
+      return `"${pendingDeletion.title}" será arquivado junto com seu SKU.`;
+    }
+    const listings = pendingListings
+      .map(
+        (listing) =>
+          `${platformLabel(listing.platform)} (${listing.platform_sku})`
+      )
+      .join(", ");
+    const listingAction =
+      pauseOnDelete && pausableListings.length > 0
+        ? "serão pausados no Mercado Livre"
+        : "serão desativados apenas no catálogo local";
+    return `"${pendingDeletion.title}" será arquivado, seu SKU será desativado e ${pendingListings.length} anúncio(s) ativo(s) ${listingAction}: ${listings}.`;
+  }, [
+    pendingDeletion,
+    pendingListings,
+    pausableListings,
+    listingsPending,
+    pauseOnDelete,
+  ]);
 
   const filtered = useMemo(() => {
     const needle = appliedTerm.trim().toLowerCase();
@@ -52,10 +100,30 @@ export function ProductsListPage() {
     );
   }, [products, appliedTerm]);
 
+  const cancelDelete = () => {
+    setPendingDeletion(null);
+    setPauseOnDelete(true);
+  };
+
   const confirmDelete = async () => {
     if (!pendingDeletion) {
       return;
     }
+
+    if (pauseOnDelete && pausableListings.length > 0) {
+      try {
+        await pauseListings.mutateAsync(pausableListings);
+      } catch {
+        notify({
+          tone: "error",
+          title: "Não foi possível pausar os anúncios",
+          description:
+            "O produto não foi excluído. Tente novamente ou desmarque a opção de pausar.",
+        });
+        return;
+      }
+    }
+
     try {
       await deleteProduct.mutateAsync(pendingDeletion);
       notify({
@@ -63,10 +131,9 @@ export function ProductsListPage() {
         title: "Produto removido",
         description: pendingDeletion.title,
       });
+      cancelDelete();
     } catch {
       notify({ tone: "error", title: "Não foi possível remover o produto" });
-    } finally {
-      setPendingDeletion(null);
     }
   };
 
@@ -120,7 +187,10 @@ export function ProductsListPage() {
           </Link>
           <button
             type="button"
-            onClick={() => setPendingDeletion(row)}
+            onClick={() => {
+              setPauseOnDelete(true);
+              setPendingDeletion(row);
+            }}
             aria-label={`Apagar ${row.title}`}
             className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
           >
@@ -297,15 +367,27 @@ export function ProductsListPage() {
       <ConfirmDialog
         open={pendingDeletion !== null}
         title="Apagar produto"
-        description={
-          pendingDeletion
-            ? `"${pendingDeletion.title}" será removido junto com seu SKU.`
-            : ""
-        }
-        confirmLabel="Apagar"
-        onCancel={() => setPendingDeletion(null)}
+        description={deletionDescription}
+        confirmLabel={pauseListings.isPending ? "Pausando..." : "Apagar"}
+        confirmDisabled={isDeleting || listingsPending}
+        onCancel={cancelDelete}
         onConfirm={confirmDelete}
-      />
+      >
+        {pausableListings.length > 0 && (
+          <label className="flex items-start gap-2 rounded-lg border border-line bg-slate-50/60 p-3 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={pauseOnDelete}
+              onChange={(event) => setPauseOnDelete(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-line text-brand-700"
+            />
+            <span>
+              Pausar/Encerrar os anúncios no Mercado Livre ao excluir o
+              produto
+            </span>
+          </label>
+        )}
+      </ConfirmDialog>
     </>
   );
 }

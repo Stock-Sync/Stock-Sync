@@ -5,6 +5,7 @@ import { LoginPage } from "./LoginPage";
 import { RequireAuth } from "../../auth/RequireAuth";
 import { renderWithProviders } from "../../test/utils";
 import { authClient } from "../../lib/api/auth-client";
+import { paths } from "../../routes/paths";
 
 /**
  * A sessão vive em cookie HTTP-only: o estado do usuário vem de
@@ -29,14 +30,15 @@ const authenticatedUser = {
   created_at: "2026-01-01T00:00:00Z",
 };
 
-function renderLoginFlow() {
+function renderLoginFlow(extraRoutes: React.ReactNode = null) {
   return renderWithProviders(
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {extraRoutes}
       <Route element={<RequireAuth />}>
         <Route path="/products/new" element={<p>Formulário de produto</p>} />
       </Route>
-      <Route path="/" element={<p>Dashboard</p>} />
+      <Route path={paths.dashboard} element={<p>Dashboard</p>} />
     </Routes>,
     { route: "/login" }
   );

@@ -1,13 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import { ProductFormPage } from "./ProductFormPage";
+import { catalogClient } from "../../lib/api/catalog-client";
+import { ApiError } from "../../types/api";
 import { renderAtRoute, renderWithProviders } from "../../test/utils";
 
-// Mock the catalog client for tests
+// Mock the catalog client for tests.
 vi.mock("../../lib/api/catalog-client", () => ({
   catalogClient: {
-    listProducts: vi.fn().mockResolvedValue([]),
-    listSkus: vi.fn().mockResolvedValue([]),
+    listProducts: vi.fn().mockResolvedValue([
+      {
+        id: 1,
+        name: "Titulo",
+        description: "produto rafa",
+        pictures: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]),
+    listSkus: vi.fn().mockResolvedValue([
+      {
+        id: 1,
+        product_id: 1,
+        internal_sku: "rafael",
+        price: 10,
+        stock_quantity: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]),
     createProduct: vi.fn().mockResolvedValue({ id: 1, name: "Titulo", description: "produto rafa", created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
     createSku: vi.fn().mockResolvedValue({ id: 1, product_id: 1, internal_sku: "rafael", price: 10, stock_quantity: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
     updateProduct: vi.fn().mockResolvedValue({ id: 1, name: "Titulo atualizado", description: "produto rafa", created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
@@ -18,6 +39,22 @@ vi.mock("../../lib/api/catalog-client", () => ({
     createMappingForSku: vi.fn().mockResolvedValue({ id: 1, sku_id: 1, platform: "mercadolivre", platform_sku: "ML-1", platform_product_id: "1", platform_variant_id: "1", is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
     deleteMapping: vi.fn().mockResolvedValue(undefined),
   },
+}));
+
+// The real uploader opens the Cloudinary widget; tests only need a URL.
+vi.mock("../../components/ui/CloudinaryUploader", () => ({
+  CloudinaryUploader: ({
+    onChange,
+  }: {
+    onChange?: (urls: string[]) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onChange?.(["https://img.test/1.png"])}
+    >
+      Adicionar imagem
+    </button>
+  ),
 }));
 
 // Mock the auth client
@@ -33,10 +70,10 @@ describe("ProductFormPage — criação", () => {
   it("exibe os campos do formulário da Imagem 3", () => {
     renderWithProviders(<ProductFormPage mode="create" />);
 
-    expect(screen.getByLabelText("Sku")).toBeInTheDocument();
-    expect(screen.getByLabelText("Title")).toBeInTheDocument();
-    expect(screen.getByLabelText("Description")).toBeInTheDocument();
-    expect(screen.getByLabelText("Price")).toBeInTheDocument();
+    expect(screen.getByLabelText("SKU do Produto")).toBeInTheDocument();
+    expect(screen.getByLabelText("Título do Produto")).toBeInTheDocument();
+    expect(screen.getByLabelText("Descrição")).toBeInTheDocument();
+    expect(screen.getByLabelText("Preço Base (R$)")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Criar" })
     ).toBeInTheDocument();
@@ -58,13 +95,36 @@ describe("ProductFormPage — criação", () => {
   it("rejeita preço negativo", async () => {
     const { user } = renderWithProviders(<ProductFormPage mode="create" />);
 
-    await user.type(screen.getByLabelText("Sku"), "abc");
-    await user.type(screen.getByLabelText("Title"), "Produto teste");
-    await user.type(screen.getByLabelText("Price"), "-5");
+    await user.type(screen.getByLabelText("SKU do Produto"), "abc");
+    await user.type(screen.getByLabelText("Título do Produto"), "Produto teste");
+    await user.type(screen.getByLabelText("Preço Base (R$)"), "-5");
     await user.click(screen.getByRole("button", { name: "Criar" }));
 
     expect(
       await screen.findByText("O preço não pode ser negativo.")
+    ).toBeInTheDocument();
+  });
+
+  it("explica o conflito de SKU arquivado no campo", async () => {
+    const { user } = renderWithProviders(<ProductFormPage mode="create" />);
+
+    await user.type(screen.getByLabelText("SKU do Produto"), "BONE-001");
+    await user.type(screen.getByLabelText("Título do Produto"), "Produto teste");
+    await user.type(screen.getByLabelText("Descrição"), "Descrição teste");
+    await user.type(screen.getByLabelText("Preço Base (R$)"), "10");
+    await user.type(screen.getByLabelText("Quantidade em Estoque"), "1");
+    await user.click(screen.getByRole("button", { name: "Adicionar imagem" }));
+
+    vi.mocked(catalogClient.createProduct).mockRejectedValueOnce(
+      new ApiError("conflict", "Conflict", undefined, 409)
+    );
+
+    await user.click(screen.getByRole("button", { name: "Criar" }));
+
+    expect(
+      await screen.findByText(
+        /O SKU "BONE-001" pertence a um produto desativado\/arquivado/
+      )
     ).toBeInTheDocument();
   });
 });
@@ -77,10 +137,10 @@ describe("ProductFormPage — edição", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Sku")).toHaveValue("rafael");
+      expect(screen.getByLabelText("SKU do Produto")).toHaveValue("rafael");
     });
-    expect(screen.getByLabelText("Title")).toHaveValue("Titulo");
-    expect(screen.getByLabelText("Description")).toHaveValue("produto rafa");
-    expect(screen.getByLabelText("Price")).toHaveValue("10");
+    expect(screen.getByLabelText("Título do Produto")).toHaveValue("Titulo");
+    expect(screen.getByLabelText("Descrição")).toHaveValue("produto rafa");
+    expect(screen.getByLabelText("Preço Base (R$)")).toHaveValue("10");
   });
 });

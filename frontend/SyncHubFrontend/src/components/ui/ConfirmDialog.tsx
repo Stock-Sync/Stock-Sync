@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "./Button";
 
@@ -15,6 +15,8 @@ export function ConfirmDialog({
   description,
   confirmLabel = "Confirmar",
   cancelLabel = "Cancelar",
+  confirmDisabled = false,
+  children,
   onConfirm,
   onCancel,
 }: {
@@ -23,6 +25,8 @@ export function ConfirmDialog({
   description: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  confirmDisabled?: boolean;
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -73,11 +77,17 @@ export function ConfirmDialog({
           </button>
         </div>
         <p className="mt-2 text-sm text-slate-600">{description}</p>
+        {children && <div className="mt-3">{children}</div>}
         <div className="mt-5 flex justify-end gap-3">
           <Button variant="secondary" size="sm" onClick={onCancel}>
             {cancelLabel}
           </Button>
-          <Button variant="danger" size="sm" onClick={onConfirm}>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+          >
             {confirmLabel}
           </Button>
         </div>

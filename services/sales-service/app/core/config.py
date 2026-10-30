@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     catalog_service_url: str = "http://localhost:8001"
     sync_service_url: str = "http://localhost:8002"
 
+    internal_service_secret: str = "your-internal-service-secret-change-in-production"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

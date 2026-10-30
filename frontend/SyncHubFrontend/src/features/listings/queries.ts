@@ -1,11 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { catalogClient, type PlatformMappingCreate } from "../../lib/api/catalog-client";
+import {
+  catalogClient,
+  type PlatformMapping,
+  type PlatformMappingCreate,
+} from "../../lib/api/catalog-client";
+import { integrationsClient } from "../../lib/api/integrations-client";
 import {
   mercadolibreClient,
   type CreateMlItemRequest,
   type UpdateMlItemRequest,
 } from "../../lib/api/mercadolibre-client";
 import { queryKeys } from "../products/queries";
+
+export const localMarketplaceItemsKey = ["ml-local-items"] as const;
+
+/** Campos mínimos para pausar um anúncio no Mercado Livre. */
+export type PausableListing = Pick<
+  PlatformMapping,
+  "platform" | "platform_product_id" | "is_active"
+>;
 
 /** Atributos técnicos de uma categoria (cache de 24h). */
 export function useCategoryAttributes(categoryId: string) {
@@ -76,6 +89,44 @@ export function useUpdateMlItem() {
   });
 }
 
+/**
+ * Pausa anúncios ativos no Mercado Livre.
+ *
+ * Usado antes de arquivar um produto (opção do modal) e pela ação rápida da
+ * lista de anúncios. Rejeita a operação inteira se qualquer pausa falhar, para
+ * que o chamador possa abortar a exclusão e evitar anúncios órfãos ativos.
+ */
+export function usePauseMlListings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (listings: PausableListing[]) => {
+      const targets = listings.filter(
+        (listing) =>
+          listing.platform === "mercado_livre" &&
+          listing.is_active &&
+          Boolean(listing.platform_product_id)
+      );
+
+      await Promise.all(
+        targets.map((listing) =>
+          mercadolibreClient.updateMlItem(listing.platform_product_id!, {
+            status: "paused",
+          })
+        )
+      );
+
+      return targets.length;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.listings });
+      void queryClient.invalidateQueries({
+        queryKey: localMarketplaceItemsKey,
+      });
+    },
+  });
+}
+
 /** Cria/substituí a descrição de um item (POST /items/{id}/description, v3). */
 export function useCreateMlItemDescription() {
   return useMutation({
@@ -91,6 +142,14 @@ export function usePlatformMappings() {
   return useQuery({
     queryKey: queryKeys.listings,
     queryFn: () => catalogClient.listPlatformMappings(),
+  });
+}
+
+/** Anúncios importados/sincronizados no integrations-service. */
+export function useLocalMarketplaceItems() {
+  return useQuery({
+    queryKey: localMarketplaceItemsKey,
+    queryFn: () => integrationsClient.listLocalMercadoLivreItems(),
   });
 }
 

@@ -1,15 +1,21 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
-from typing import Any
-from sqlmodel import Session
+import hashlib
+import hmac
 import logging
 
-from app.db.session import get_session
-from app.services.mercadolibre import MercadoLivreService
+from fastapi import APIRouter, Header, HTTPException, Request
+from pydantic import BaseModel
+
+from app.core.config import settings
+from app.core.redis import EVENT_ITEMS_CHANGED, EVENT_ORDER_CREATED, publish_event
 
 router = APIRouter(prefix="/api/v1/integrations/webhooks", tags=["webhooks"])
 
 logger = logging.getLogger(__name__)
+
+# Topics we forward to the sync stream. "orders" is the legacy topic name and
+# "orders_v2" is what Mercado Livre sends nowadays — accept both.
+ORDER_TOPICS = {"orders", "orders_v2"}
+ITEM_TOPICS = {"items"}
 
 
 class WebhookNotification(BaseModel):
@@ -22,16 +28,47 @@ class WebhookNotification(BaseModel):
     id: str
 
 
+def _verify_signature(raw_body: bytes, x_signature: str | None) -> bool:
+    """Validate ML's X-Signature (HMAC-SHA256 of the raw body).
+
+    Mercado Livre signs notifications with the webhook secret configured in the
+    app panel. When no secret is configured we accept the notification (with a
+    warning log) so local development keeps working.
+    """
+    if not settings.ml_webhook_secret:
+        logger.warning("ml_webhook_signature_skipped_no_secret")
+        return True
+    if not x_signature:
+        return False
+    expected = hmac.new(
+        settings.ml_webhook_secret.encode(), raw_body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, x_signature.lower())
+
+
 @router.post("/mercadolivre")
 async def ml_webhook(
     request: Request,
-    notification: WebhookNotification,
     x_signature: str | None = Header(None),
-    session: Session = Depends(get_session),
 ):
-    """Receive Mercado Livre webhook notifications."""
-    
-    # Log the notification
+    """Receive Mercado Livre notifications and forward them to Redis Streams.
+
+    Thin forwarder: validates the signature, maps the topic to an event type
+    and XADDs it to the ``stocksync:events`` stream. All fetching of full
+    order/item details and business processing happens in sync-service.
+    A non-2xx response here makes ML retry the notification later.
+    """
+    raw_body = await request.body()
+    if not _verify_signature(raw_body, x_signature):
+        logger.warning("ml_webhook_invalid_signature")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    try:
+        notification = WebhookNotification.model_validate_json(raw_body)
+    except Exception:
+        logger.warning("ml_webhook_malformed_payload")
+        raise HTTPException(status_code=400, detail="Malformed notification") from None
+
     logger.info(
         "mercadolivre_webhook_received",
         extra={
@@ -41,114 +78,32 @@ async def ml_webhook(
             "notification_id": notification.id,
         },
     )
-    
-    # Process based on topic
-    ml_service = MercadoLivreService(session)
-    
-    try:
-        if notification.topic == "items" and notification.resource.startswith("/items/"):
-            item_id = notification.resource.split("/")[-1]
-            
-            # Find credential by ml_user_id from notification
-            from app.models.marketplace_credential import MarketplaceCredential, Marketplace
-            from sqlmodel import select
-            
-            credential = session.exec(
-                select(MarketplaceCredential).where(
-                    MarketplaceCredential.ml_user_id == notification.user_id,
-                    MarketplaceCredential.marketplace == Marketplace.mercadolivre,
-                    MarketplaceCredential.is_active == True,
-                )
-            ).first()
-            
-            if credential:
-                # Fetch full item details from ML
-                item_data = await ml_service.get_item(credential.tenant_id, item_id)
-                
-                # Sync to local database
-                ml_service.sync_item_to_local(credential.tenant_id, item_data, notification.user_id)
-                
-                logger.info(
-                    "mercadolivre_item_webhook_processed",
-                    extra={
-                        "item_id": item_id,
-                        "tenant_id": credential.tenant_id,
-                        "ml_user_id": notification.user_id,
-                    },
-                )
-        
-        elif notification.topic == "orders" and notification.resource.startswith("/orders/"):
-            order_id = notification.resource.split("/")[-1]
-            
-            # Dispatch to background processing
-            # For now, we'll process synchronously but in production use Redis Stream/Queue
-            try:
-                await process_order_notification(session, notification.user_id, order_id)
-            except Exception as e:
-                logger.error(
-                    "mercadolivre_webhook_processing_failed",
-                    extra={"order_id": order_id, "error": str(e)},
-                )
-                # Don't raise - we already acknowledged with 200
-    
-    except Exception as e:
-        logger.error(
-            "mercadolivre_webhook_processing_error",
-            extra={"error": str(e), "topic": notification.topic, "resource": notification.resource},
-        )
-        # Don't raise - we already acknowledged with 200
-    
-    # Always respond 200 OK to Mercado Livre
-    return {"status": "ok"}
 
-
-async def process_order_notification(session: Session, ml_user_id: int, order_id: str):
-    """Process order notification by fetching full order details."""
-    
-    # Find credential by ml_user_id
-    from app.models.marketplace_credential import MarketplaceCredential, Marketplace
-    from sqlmodel import select
-    
-    credential = session.exec(
-        select(MarketplaceCredential).where(
-            MarketplaceCredential.ml_user_id == ml_user_id,
-            MarketplaceCredential.marketplace == Marketplace.mercadolivre,
-            MarketplaceCredential.is_active == True,
-        )
-    ).first()
-    
-    if not credential:
-        logger.warning(
-            "mercadolivre_credential_not_found_for_user",
-            extra={"ml_user_id": ml_user_id},
-        )
-        return
-    
-    ml_service = MercadoLivreService(session)
-    
-    try:
-        # Fetch full order details
-        order_data = await ml_service.get_order(credential.tenant_id, order_id)
-        
-        # TODO: Store order in sales-service or local database
-        # For now, just log it
+    if notification.topic in ITEM_TOPICS and notification.resource.startswith("/items/"):
+        event_type = EVENT_ITEMS_CHANGED
+    elif notification.topic in ORDER_TOPICS and notification.resource.startswith(
+        ("/orders/", "/orders_v2/")
+    ):
+        event_type = EVENT_ORDER_CREATED
+    else:
+        # Unknown topic: acknowledge and ignore (ML stops retrying).
         logger.info(
-            "mercadolivre_order_processed",
-            extra={
-                "order_id": order_id,
-                "tenant_id": credential.tenant_id,
-                "order_data": order_data,
-            },
+            "ml_webhook_ignored_topic",
+            extra={"topic": notification.topic, "resource": notification.resource},
         )
-        
-        # In a real implementation, you would:
-        # 1. Send to sales-service via HTTP or message queue
-        # 2. Store in local database for sync
-        # 3. Trigger any business logic
-        
-    except Exception as e:
-        logger.error(
-            "mercadolivre_order_fetch_failed",
-            extra={"order_id": order_id, "error": str(e)},
-        )
-        raise
+        return {"status": "ignored"}
+
+    event_id = await publish_event(
+        event_type,
+        {
+            "ml_user_id": notification.user_id,
+            "resource": notification.resource,
+            "topic": notification.topic,
+            "notification_id": notification.id,
+        },
+    )
+    if event_id is None:
+        # Redis down → 500 so Mercado Livre retries the notification later.
+        raise HTTPException(status_code=503, detail="Event queue unavailable")
+
+    return {"status": "queued", "event_id": event_id}

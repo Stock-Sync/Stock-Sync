@@ -22,9 +22,28 @@ class SKUUpdate(SQLModel):
     stock_quantity: int | None = Field(default=None, ge=0)
 
 
+class SKUAdjust(SQLModel):
+    """Relative stock change (negative to deduct, positive to add)."""
+
+    delta: int
+    source: str = Field(default="manual", max_length=50)
+
+
+class SKUAdjustRead(SQLModel):
+    model_config = SQLModelConfig(from_attributes=True)
+
+    sku_id: int
+    internal_sku: str
+    previous_quantity: int
+    new_quantity: int
+    clamped: bool
+
+
 class SKURead(SKUBase):
     model_config = SQLModelConfig(from_attributes=True)
 
     id: int
+    tenant_id: str
+    is_deleted: bool
     created_at: datetime
     updated_at: datetime

@@ -10,6 +10,10 @@ import { ApiError } from "../../types/api";
 /**
  * Tela de cadastro de usuário.
  *
+ * A lógica de cadastro (formulário, validação e endpoint) vive aqui. Ao
+ * clicar em "Criar conta" na navbar da landing, o usuário é redirecionado
+ * para esta página.
+ *
  * Validações:
  * - Nome: obrigatório
  * - E-mail: formato válido
@@ -63,7 +67,7 @@ export function RegisterPage() {
 
     try {
       await authClient.register({ name: name.trim(), email: email.trim(), password });
-      
+
       // Sucesso - redireciona para login com mensagem
       navigate(paths.login, { 
         replace: true, 

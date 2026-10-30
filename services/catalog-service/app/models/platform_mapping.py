@@ -11,6 +11,7 @@ class Platform(str, Enum):
 
 class PlatformMapping(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
+    tenant_id: str = Field(max_length=36, index=True)
     sku_id: int = Field(foreign_key="sku.id", index=True)
     platform: Platform = Field(index=True)
     platform_sku: str = Field(max_length=100)

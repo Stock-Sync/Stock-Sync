@@ -14,23 +14,36 @@ O backend foi organizado em um monorepo de microsserviços, com uma pasta por se
 
 ### Serviços do MVP
 
-- `catalog-service` — catálogo de produtos, SKU e mapeamento entre plataformas
-- `sync-service` — orquestra eventos e sincronização de estoque
-- `integrations-service` — integrações com Mercado Livre e Shopee via API
-- `sales-service` — consolida métricas e dados de vendas para dashboard
+- `catalog-service` — catálogo de produtos, SKU e mapeamento entre plataformas; estoque é a fonte da verdade e todo ajuste publica um evento `stock_adjust` no stream
+- `sync-service` — consome o stream Redis Streams, processa vendas do ML (deduz estoque, grava a venda) e faz o flush em lote (3s) da quantidade ao marketplace
+- `integrations-service` — integrações com Mercado Livre e Shopee via API, OAuth, webhook receiver (thin forwarder para o stream) e endpoints internos para o sync-service
+- `sales-service` — persiste o histórico de vendas (uma linha por pedido × item) e o expõe para a tela "Vendas"
 
 ### Estratégia de comunicação
 
-A comunicação entre serviços deve seguir um modelo híbrido:
+A comunicação entre serviços segue um modelo híbrido:
 
-- HTTP para operações síncronas e validadores de dados entre serviços
-- Redis Streams / filas de eventos para o fluxo de sincronização de estoque
+- HTTP para operações síncronas e validadores de dados entre serviços (endpoints internos protegidos por `X-Internal-Secret`)
+- Redis Streams para o fluxo de sincronização de estoque e vendas
 
-A justificativa é simples:
+Fluxo de uma venda no Mercado Livre:
+
+```text
+webhook ML ─► integrations (valida + XADD) ─► stocksync:events ◄─ catalog (XADD stock_adjust)
+                                                  │
+                                                  ▼
+                                     sync-service (consumer group)
+                                        ├─ order_created: busca pedido → deduz estoque (catalog, atômico)
+                                        │                 → grava venda (sales) → enfileira flush
+                                        └─ stock_adjust: enfileira flush pros anúncios vinculados
+                                                  │
+                                                  ▼
+                              flusher 3s: lê estoque atual local → PUT available_quantity no ML
+```
 
 - `catalog-service` precisa responder rapidamente a consultas de produtos e SKU
-- `sync-service` precisa coordenar eventos e lidar com retries sem bloquear o restante da aplicação
-- `integrations-service` pode consumir eventos e publicar respostas de status de sincronização
+- `sync-service` consome eventos com garantia at-least-once (dedupe por `dedupe_key`, retries via `XAUTOCLAIM`, dead-letter stream após 5 falhas)
+- `integrations-service` recebe as notificações do ML e apenas valida + encaminha ao stream; a busca de detalhes acontece sob demanda no sync-service
 
 ### Estrutura do monorepo
 
@@ -144,7 +157,12 @@ Nos containers, o `alembic upgrade head` roda automaticamente antes do `uvicorn`
 
 ## Status do projeto
 
-🚧 Em desenvolvimento — base do MVP configurada: FastAPI, PostgreSQL via SQLModel, Alembic por serviço, schemas, erros padronizados, logging estruturado e testes do catálogo. 
+🚀 Em desenvolvimento ativo — sincronização de anúncios e vendas com o Mercado Livre implementada:
+
+- **Anúncios**: publicação automática a partir do programa (wizard) e pull manual completo ("Sincronizar") com auditoria em `ListingsSyncRun`
+- **Vendas**: webhook do ML → Redis Streams → `sync-service` deduz estoque (endpoint atômico no catalog) e grava a venda no `sales-service`, com dedupe, retries e dead-letter
+- **Estoque**: mudanças manuais e de venda passam pelo stream; o flusher em lote (3s) envia a quantidade final ao ML, colapsando múltiplas mudanças numa chamada
+- **Frontend**: página "Vendas" no menu lateral (SKU, estoque, preço, quantidade, foto, comprador, data) e botão "Sincronizar" ligado ao sync-service
 
 ## Equipe
 

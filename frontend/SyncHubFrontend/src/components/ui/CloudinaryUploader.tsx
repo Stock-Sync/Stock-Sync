@@ -9,17 +9,21 @@ declare global {
 }
 
 interface CloudinaryUploaderProps {
-  onUploadComplete: (urls: string[]) => void;
+  value?: string[];
+  onChange?: (urls: string[]) => void;
+  onUploadComplete?: (urls: string[]) => void;
   maxFiles?: number;
   folder?: string;
 }
 
 export function CloudinaryUploader({
+  value = [],
+  onChange,
   onUploadComplete,
   maxFiles = 12,
   folder = "stocksync/products",
 }: CloudinaryUploaderProps) {
-  const [urls, setUrls] = useState<string[]>([]);
+  const [urls, setUrls] = useState<string[]>(value);
   const [isUploading, setIsUploading] = useState(false);
 
   // Carrega o script do Cloudinary globalmente se não estiver carregado
@@ -35,9 +39,19 @@ export function CloudinaryUploader({
     }
   }, []);
 
-  // Chama onUploadComplete apenas quando a lista de URLs realmente muda,
-  // evitando loops com props recriadas a cada render (ex.: arrow functions
-  // inline no componente pai).
+  // Sincroniza urls com o valor recebido por prop quando muda
+  useEffect(() => {
+    const changed =
+      urls.length !== value.length ||
+      urls.some((url, i) => url !== value[i]);
+    if (!changed) {
+      return;
+    }
+    setUrls(value);
+  }, [value]);
+
+  // Chama onChange/onUploadComplete apenas quando a lista de URLs realmente muda,
+  // evitando loops com props recriadas a cada render.
   const urlsRef = useRef(urls);
   useEffect(() => {
     const changed =
@@ -47,8 +61,9 @@ export function CloudinaryUploader({
       return;
     }
     urlsRef.current = urls;
-    onUploadComplete(urls);
-  }, [onUploadComplete, urls]);
+    onChange?.(urls);
+    onUploadComplete?.(urls);
+  }, [onChange, onUploadComplete, urls]);
 
   const openWidget = useCallback(() => {
     if (!window.cloudinary) return;

@@ -3,6 +3,9 @@ import { ChevronDown, ChevronUp, Loader2, Trash2 } from "lucide-react";
 
 export interface PhotoItem {
   source: string;
+  /** When true, the image comes from Mercado Libre CDN and cannot be removed
+   *  (ML CDN URLs cannot be used as `source` on PUT /items). */
+  readOnly?: boolean;
 }
 
 export interface PhotoGalleryProps {
@@ -159,21 +162,25 @@ export function PhotoGallery({
           {value.map((photo, index) => (
             <div
               key={index}
-              className="relative w-full aspect-square rounded-xl border border-line overflow-hidden bg-slate-50"
+              className={`relative w-full aspect-square rounded-xl border border-line overflow-hidden bg-slate-50 ${
+                photo.readOnly ? "opacity-50 grayscale" : ""
+              }`}
             >
               <img
                 src={photo.source}
                 alt={`Foto ${index + 1}`}
                 className="w-full h-full object-cover"
               />
-              <button
-                type="button"
-                onClick={() => remove(index)}
-                aria-label={`Remover foto ${index + 1}`}
-                className="absolute top-1 right-1 rounded-full bg-red-500 text-white text-xs p-1 hover:bg-red-600"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+              {!photo.readOnly && (
+                <button
+                  type="button"
+                  onClick={() => remove(index)}
+                  aria-label={`Remover foto ${index + 1}`}
+                  className="absolute top-1 right-1 rounded-full bg-red-500 text-white text-xs p-1 hover:bg-red-600"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
               <div className="flex h-full w-full items-end justify-between p-1">
                 <button
                   type="button"

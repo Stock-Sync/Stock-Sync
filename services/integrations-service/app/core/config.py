@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     shopee_partner_id: str = ""
     shopee_partner_key: str = ""
 
+    # Public base URL of this API (used for OAuth redirect + webhook callback)
+    public_api_url: str = "https://dreamt-roundness-tightwad.ngrok-free.dev"
+    # Optional HMAC secret from the Mercado Livre app panel (webhook signature)
+    frontend_url: str = "http://localhost:5173"
+    ml_webhook_secret: str = ""
+    # Shared secret guarding service-to-service (internal) endpoints
+    internal_service_secret: str = "your-internal-service-secret-change-in-production"
+
     # JWT settings (shared with auth-service for token validation)
     jwt_secret_key: str = "your-super-secret-jwt-key-change-in-production"
     jwt_algorithm: str = "HS256"
