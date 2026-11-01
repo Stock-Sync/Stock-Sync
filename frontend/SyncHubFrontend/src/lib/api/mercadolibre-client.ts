@@ -32,6 +32,18 @@ export interface MlCategoryAttribute {
   [key: string]: unknown; // demais metadados repassados pelo proxy
 }
 
+/** Atributo enviado/recebido do Mercado Livre.
+ *
+ * Atributos numéricos (dimensões/peso) usam ``value_name`` apenas com o número
+ * e ``value_struct`` para a unidade — o ML rejeita valores como "22 cm".
+ */
+export interface MlAttributeValue {
+  id: string;
+  value_name?: string;
+  value_id?: string;
+  value_struct?: { number: number; unit?: string } | null;
+}
+
 /** Resposta da criação de item no Mercado Livre (v3). */
 export interface MlItemResponse {
   id: string; // ex.: MLB12345678
@@ -44,8 +56,9 @@ export interface MlItemResponse {
   listing_type_id?: string;
   condition?: string;
   category_id?: string;
+  domain_id?: string;
   pictures?: Array<{ secure_url: string }>;
-  attributes?: Array<{ id: string; value_name: string; value_id: string | null }>;
+  attributes?: MlAttributeValue[];
   /** Cloudinary URLs persistidas localmente para reedição. */
   _cloudinary_urls?: string[];
 }
@@ -64,7 +77,7 @@ export interface CreateMlItemRequest {
   price: number;
   available_quantity: number;
   pictures: Array<{ source: string }>;
-  attributes: Array<{ id: string; value_name?: string; value_id?: string }>;
+  attributes: Array<{ id: string; value_name?: string; value_id?: string; value_struct?: { number: number; unit?: string } | null }>;
   sale_terms?: Array<{ id: string; value_name?: string; value_id?: string }>;
   /** Enviada em chamada separada (POST /items/{id}/description) pelo proxy. */
   description?: string;
@@ -73,18 +86,19 @@ export interface CreateMlItemRequest {
   product_id?: number;
 }
 
-/** Payload para atualização de item existente (campos editáveis). */
+/** Payload para atualização de item existente (apenas campos editáveis).
+ *  `title`/`family_name` e demais campos imutáveis não são enviados: o modelo
+ *  User Products v3 do Mercado Livre os rejeita em `PUT /items`. */
 export interface UpdateMlItemRequest {
-  title?: string;
   price?: number;
   available_quantity?: number;
   status?: "active" | "paused" | "closed";
   pictures?: Array<{ source: string }>;
   description?: string;
-  attributes?: Array<{ id: string; value_name: string; value_id?: string }>;
+  attributes?: Array<{ id: string; value_name?: string; value_id?: string; value_struct?: { number: number; unit?: string } | null }>;
   sale_terms?: Array<{ id: string; value_name: string; value_id?: string }>;
   children?: Array<{
-    attributes: Array<{ id: string; value_name: string; value_id?: string }>;
+    attributes: Array<{ id: string; value_name?: string; value_id?: string; value_struct?: { number: number; unit?: string } | null }>;
     available_quantity: number;
     price: number;
     seller_custom_field?: string;

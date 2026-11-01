@@ -154,6 +154,9 @@ class ItemAttribute(SQLModel):
     id: str
     value_name: str | None = None
     value_id: str | None = None
+    # Numeric attributes (dimensions/weight) must also carry the raw number and
+    # unit separately; ``value_name`` holds only the numeric part.
+    value_struct: dict[str, Any] | None = None
 
 
 class ItemPicture(SQLModel):
@@ -209,9 +212,12 @@ class ItemCreateRequest(SQLModel):
 
 
 class ItemUpdateRequest(SQLModel):
-    """Payload for updating a listing (only editable fields)."""
+    """Payload for updating a listing (only editable fields).
 
-    title: str | None = SQLModelField(default=None, min_length=1, max_length=ML_TITLE_MAX_LENGTH)
+    ``title``/``family_name`` and other immutable fields are intentionally not
+    accepted: Mercado Livre's User Products v3 rejects them on ``PUT /items``.
+    """
+
     price: float | None = SQLModelField(default=None, gt=0)
     available_quantity: int | None = SQLModelField(default=None, ge=0)
     status: StatusStr | None = None

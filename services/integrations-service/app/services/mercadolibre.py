@@ -313,6 +313,45 @@ class MercadoLivreService:
             response.raise_for_status()
             return response.json()
 
+    async def update_item_description(self, access_token: str, item_id: str, description: str) -> dict[str, Any]:
+        """Update an item description.
+
+        Mercado Livre exposes PUT for updates and POST for initial creation;
+        fall back to POST when the item has no description yet.
+        """
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.put(
+                f"{ML_API_BASE}/items/{item_id}/description",
+                json={"plain_text": description},
+                headers=headers,
+            )
+            if response.status_code == 404:
+                response = await client.post(
+                    f"{ML_API_BASE}/items/{item_id}/description",
+                    json={"plain_text": description},
+                    headers=headers,
+                )
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                details = {"status_code": e.response.status_code}
+                try:
+                    details["ml_error"] = e.response.json()
+                except Exception:
+                    details["ml_error"] = e.response.text
+                raise APIError(
+                    status_code=422,
+                    code="item_description_failed",
+                    message="Falha ao atualizar a descrição do anúncio no Mercado Livre.",
+                    details=details,
+                ) from e
+            return response.json()
+
     async def get_category_attributes(self, access_token: str, category_id: str) -> list[dict[str, Any]]:
         """Get category attributes from Mercado Livre with Redis caching."""
         cache_key = f"ml:category:attributes:{category_id}"
@@ -449,12 +488,78 @@ class MercadoLivreService:
         if not credential:
             raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
 
-        # Upload new pictures if provided
-        cloudinary_urls = item_data.get("pictures", [])
-        if cloudinary_urls:
+        # Description is not an editable field of /items; it is updated through
+        # the dedicated /items/{id}/description endpoint below.
+        description = item_data.pop("description", None)
+
+        # Immutable or managed fields that must never reach PUT /items.
+        # User Products v3 rejects them (e.g. title/family_name, category_id),
+        # and local ERP metadata is not recognized by Mercado Livre.
+        forbidden_update_fields = [
+            "title",
+            "family_name",
+            "category_id",
+            "buying_mode",
+            "currency_id",
+            "listing_type_id",
+            "condition",
+            "sku_id",
+            "product_id",
+            "description",
+            "_sku_id",
+            "_product_id",
+            "_description",
+            "_cloudinary_urls",
+        ]
+        for field in forbidden_update_fields:
+            item_data.pop(field, None)
+
+        # Upload new pictures if provided. Omit the array entirely when empty
+        # so Mercado Livre keeps the listing's existing images.
+        pictures = item_data.get("pictures")
+        if pictures:
             # Send the URLs as `source` so Mercado Libre can download them.
             # Do not re-upload ML CDN secure_urls to ML CDN again.
-            item_data["pictures"] = [{"source": url} for url in cloudinary_urls]
+            sanitized_pictures: list[dict[str, Any]] = []
+            for picture in pictures:
+                if isinstance(picture, dict):
+                    source = picture.get("source")
+                else:
+                    source = picture
+                if source:
+                    sanitized_pictures.append({"source": source})
+            if sanitized_pictures:
+                item_data["pictures"] = sanitized_pictures
+            else:
+                item_data.pop("pictures", None)
+        else:
+            item_data.pop("pictures", None)
+
+        # Remove empty attributes: Mercado Livre rejects null/blank values
+        # (e.g. a numeric attribute left untouched in the form).
+        attributes = item_data.get("attributes")
+        if isinstance(attributes, list):
+            sanitized_attributes: list[dict[str, Any]] = []
+            for attribute in attributes:
+                if not isinstance(attribute, dict):
+                    continue
+                value_name = attribute.get("value_name")
+                if value_name is not None:
+                    value_name = str(value_name).strip()
+                    if value_name:
+                        attribute["value_name"] = value_name
+                    else:
+                        attribute.pop("value_name", None)
+                value_id = attribute.get("value_id")
+                if value_id is not None:
+                    value_id = str(value_id).strip()
+                    if value_id:
+                        attribute["value_id"] = value_id
+                    else:
+                        attribute.pop("value_id", None)
+                if attribute.get("value_name") or attribute.get("value_id"):
+                    sanitized_attributes.append(attribute)
+            item_data["attributes"] = sanitized_attributes
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.put(
@@ -466,8 +571,27 @@ class MercadoLivreService:
                     "Accept": "application/json",
                 },
             )
-            response.raise_for_status()
-            return response.json()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                details = {"status_code": e.response.status_code}
+                try:
+                    details["ml_error"] = e.response.json()
+                except Exception:
+                    details["ml_error"] = e.response.text
+                raise APIError(
+                    status_code=422,
+                    code="item_update_failed",
+                    message="Falha ao atualizar o anúncio no Mercado Livre. Verifique os dados informados.",
+                    details=details,
+                ) from e
+
+        if description and str(description).strip():
+            await self.update_item_description(
+                credential.access_token, item_id, str(description)
+            )
+
+        return response.json()
 
     async def delete_item(self, tenant_id: str, item_id: str) -> dict[str, Any]:
         """Delete/pause an item."""

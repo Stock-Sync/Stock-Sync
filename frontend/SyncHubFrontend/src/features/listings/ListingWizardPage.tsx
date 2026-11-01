@@ -69,10 +69,13 @@ interface FormAttribute {
   value_type: string;
   required: boolean;
   allowed_values?: Array<{ id: string; name: string }>;
+  allowed_units?: Array<{ id: string; name: string }>;
   tags?: Record<string, unknown>;
   max_length?: number;
+  number_unit?: string | null;
   value_name: string;
   value_id?: string;
+  value_struct?: { number: number; unit?: string };
 }
 
 interface WizardData {
@@ -137,6 +140,36 @@ function isRequiredAttribute(attr: MlCategoryAttribute): boolean {
   return tags.required === true || tags.catalog_required === true;
 }
 
+/** Converte o `ml_error` devolvido pelo backend em uma mensagem legível. */
+function formatMlError(mlError: unknown): string {
+  if (typeof mlError === "string") {
+    return mlError;
+  }
+  if (!mlError || typeof mlError !== "object") {
+    return String(mlError);
+  }
+  const error = mlError as { message?: unknown; cause?: unknown };
+  const causes = Array.isArray(error.cause)
+    ? error.cause
+        .map((cause) => {
+          if (typeof cause === "string") {
+            return cause;
+          }
+          if (cause && typeof cause === "object" && "message" in cause) {
+            return String((cause as { message?: unknown }).message);
+          }
+          return undefined;
+        })
+        .filter(Boolean)
+        .join("; ")
+    : typeof error.cause === "string"
+      ? error.cause
+      : "";
+  const message =
+    typeof error.message === "string" ? error.message : JSON.stringify(mlError);
+  return [message, causes].filter(Boolean).join(": ");
+}
+
 function toFormAttribute(attr: MlCategoryAttribute): FormAttribute {
   return {
     id: attr.id,
@@ -145,8 +178,10 @@ function toFormAttribute(attr: MlCategoryAttribute): FormAttribute {
     value_type: attr.value_type,
     required: isRequiredAttribute(attr),
     allowed_values: attr.allowed_values,
+    allowed_units: attr.allowed_units,
     tags: attr.tags,
     max_length: attr.max_length,
+    number_unit: attr.number_unit,
     value_name: "",
     value_id: undefined,
   };
@@ -164,7 +199,12 @@ interface WizardContextValue {
   setFormError: (message: string) => void;
   submitting: boolean;
   setSubmitting: (submitting: boolean) => void;
-  setAttributeValue: (id: string, valueName: string, valueId?: string) => void;
+  setAttributeValue: (
+    id: string,
+    valueName: string,
+    valueId?: string,
+    valueStruct?: { number: number; unit?: string }
+  ) => void;
   categoryAttributes: MlCategoryAttribute[];
   loadingAttributes: boolean;
   isEdit: boolean;
@@ -596,7 +636,22 @@ function AttributeControl({ attr }: { attr: FormAttribute }) {
   const fieldId = `attr-${attr.id}`;
   const hasError = Boolean(errors[`attr-${attr.id}`]);
   const labelRequired = attr.required ? " (obrigatório)" : "";
-  const [unit, setUnit] = useState<string>("");
+  const defaultUnit = (() => {
+    if (attr.value_struct?.unit) {
+      return attr.value_struct.unit;
+    }
+    const allowedUnit = attr.allowed_units?.find(
+      (option) =>
+        option.id === attr.number_unit || option.name === attr.number_unit
+    );
+    return (
+      allowedUnit?.id ??
+      attr.number_unit ??
+      attr.allowed_units?.[0]?.id ??
+      ""
+    );
+  })();
+  const [unit, setUnit] = useState<string>(defaultUnit);
 
   if (attr.allowed_values?.length) {
     const allowed = attr.allowed_values ?? [];
@@ -676,8 +731,23 @@ function AttributeControl({ attr }: { attr: FormAttribute }) {
 
   if (attr.type === "number" || attr.value_type === "number") {
     const numericPart = attr.value_name.replace(/[^0-9,.-].*$/s, "").trim();
-    const combine = (number: string, unitText: string) =>
-      `${number}${unitText ? " " + unitText : ""}`;
+    const buildStruct = (numberText: string, unitText: string) => {
+      const number = Number.parseFloat(numberText.replace(",", "."));
+      if (!Number.isFinite(number)) {
+        return undefined;
+      }
+      const normalizedUnit = unitText.trim();
+      return normalizedUnit ? { number, unit: normalizedUnit } : { number };
+    };
+    const updateValue = (numberText: string, unitText: string) => {
+      // ML expects the raw number in value_name and the unit in value_struct.
+      setAttributeValue(
+        attr.id,
+        numberText.trim(),
+        undefined,
+        buildStruct(numberText, unitText)
+      );
+    };
 
     return (
       <div key={fieldId} className="space-y-1">
@@ -692,27 +762,43 @@ function AttributeControl({ attr }: { attr: FormAttribute }) {
             type="number"
             value={numericPart}
             onChange={(event) =>
-              setAttributeValue(attr.id, combine(event.target.value, unit))
+              updateValue(event.target.value, unit)
             }
             placeholder="0"
             error={hasError ? errors[`attr-${attr.id}`] : undefined}
             className="flex-1"
           />
-          <Input
-            id={`${fieldId}-unit`}
-            label=""
-            placeholder="Unidade"
-            value={unit}
-            onChange={(event) => {
-              setUnit(event.target.value);
-              setAttributeValue(
-                attr.id,
-                combine(numericPart, event.target.value)
-              );
-            }}
-            error={hasError ? errors[`attr-${attr.id}`] : undefined}
-            className="w-24"
-          />
+          {attr.allowed_units?.length ? (
+            <select
+              id={`${fieldId}-unit`}
+              value={unit}
+              onChange={(event) => {
+                setUnit(event.target.value);
+                updateValue(numericPart, event.target.value);
+              }}
+              className="h-10 w-24 rounded-xl border border-line bg-surface px-2 text-sm text-slate-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none"
+              aria-label={`Unidade de ${attr.name}`}
+            >
+              {attr.allowed_units.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Input
+              id={`${fieldId}-unit`}
+              label=""
+              placeholder="Unidade"
+              value={unit}
+              onChange={(event) => {
+                setUnit(event.target.value);
+                updateValue(numericPart, event.target.value);
+              }}
+              error={hasError ? errors[`attr-${attr.id}`] : undefined}
+              className="w-24"
+            />
+          )}
         </div>
         {hasError && (
           <p className="mt-1 text-xs text-red-600">
@@ -761,7 +847,9 @@ function ListingDataStep() {
           Passo 3 de 5 — Dados do anúncio
         </h2>
         <p className="mt-1 text-sm text-slate-600">
-          Configure o anúncio que será publicado no Mercado Livre.
+          {isEdit
+            ? "Campos imutáveis como título, tipo de anúncio e condição estão bloqueados para alteração."
+            : "Configure o anúncio que será publicado no Mercado Livre."}
         </p>
       </div>
 
@@ -782,43 +870,68 @@ function ListingDataStep() {
       <Card>
         <CardBody className="p-5">
           <div className="space-y-4">
-            <Input
-              label="Título do anúncio"
-              value={data.title}
-              onChange={(event) => setField("title", event.target.value)}
-              maxLength={60}
-              error={errors.title}
-              required
-            />
-            <div className="flex justify-end">
-              <span className="text-xs text-slate-400">
-                {data.title.length}/60 caracteres
-              </span>
+            {/* Campo Título desativado em modo de edição */}
+            <div>
+              <Input
+                label="Título do anúncio"
+                value={data.title}
+                onChange={(event) => setField("title", event.target.value)}
+                maxLength={60}
+                error={errors.title}
+                disabled={isEdit}
+                readOnly={isEdit}
+                className={cn(
+                  isEdit && "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200 focus:ring-0"
+                )}
+                required={!isEdit}
+              />
+              {isEdit ? (
+                <p className="mt-1 text-xs text-slate-400">
+                  O título não pode ser alterado em anúncios ativos da família User Products v3.
+                </p>
+              ) : (
+                <div className="flex justify-end mt-1">
+                  <span className="text-xs text-slate-400">
+                    {data.title.length}/60 caracteres
+                  </span>
+                </div>
+              )}
             </div>
 
+            {/* Seletores de Tipo e Condição desativados em modo de edição */}
             <div className="grid gap-4 sm:grid-cols-2">
-              <Select
-                label="Tipo de anúncio"
-                value={data.listingTypeId}
-                onChange={(event) =>
-                  setField("listingTypeId", event.target.value as ListingType)
-                }
-                options={LISTING_TYPES}
-                error={errors.listingType}
-                required
-              />
-              <Select
-                label="Condição"
-                value={data.condition}
-                onChange={(event) =>
-                  setField("condition", event.target.value as ListingCondition)
-                }
-                options={LISTING_CONDITIONS}
-                error={errors.condition}
-                required
-              />
+              <div className={cn(isEdit && "opacity-70 pointer-events-none")}>
+                <Select
+                  label="Tipo de anúncio"
+                  value={data.listingTypeId}
+                  onChange={(event) =>
+                    setField("listingTypeId", event.target.value as ListingType)
+                  }
+                  options={LISTING_TYPES}
+                  error={errors.listingType}
+                  disabled={isEdit}
+                  required={!isEdit}
+                  className={cn(isEdit && "bg-slate-100 text-slate-500 cursor-not-allowed")}
+                />
+              </div>
+
+              <div className={cn(isEdit && "opacity-70 pointer-events-none")}>
+                <Select
+                  label="Condição"
+                  value={data.condition}
+                  onChange={(event) =>
+                    setField("condition", event.target.value as ListingCondition)
+                  }
+                  options={LISTING_CONDITIONS}
+                  error={errors.condition}
+                  disabled={isEdit}
+                  required={!isEdit}
+                  className={cn(isEdit && "bg-slate-100 text-slate-500 cursor-not-allowed")}
+                />
+              </div>
             </div>
 
+            {/* Preço e Quantidade (CAMPOS HABILITADOS PARA EDIÇÃO) */}
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
                 label="Preço de venda (R$)"
@@ -840,7 +953,7 @@ function ListingDataStep() {
               />
             </div>
 
-            {/* Galeria limpa de artefatos visuais / riscos */}
+            {/* Galeria de Fotos */}
             <div className="rounded-xl border border-slate-200 p-4 bg-white">
               <PhotoGallery
                 value={data.pictures}
@@ -853,6 +966,7 @@ function ListingDataStep() {
               </p>
             )}
 
+            {/* Descrição do Anúncio */}
             <Textarea
               label="Descrição do anúncio"
               value={data.description}
@@ -868,7 +982,7 @@ function ListingDataStep() {
             />
             <p className="text-xs text-slate-500">
               {isEdit
-                ? "Se preenchida, a descrição será reenviada ao Mercado Livre."
+                ? "Se preenchida, a descrição será reenviada ao Mercado Livre via endpoint dedicado."
                 : "Pré-preenchida com a descrição base do produto; revise antes de publicar."}
             </p>
           </div>
@@ -1062,7 +1176,7 @@ export function ListingWizardPage() {
   const editingListingId = searchParams.get("listingId") || undefined;
   const isEdit = Boolean(editingListingId);
 
-  const [step, setStep] = useState<WizardStep>(1);
+  const [step, setStep] = useState<WizardStep>(isEdit ? 3 : 1);
   const [data, setData] = useState<WizardData>(INITIAL_DATA);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
@@ -1114,6 +1228,9 @@ export function ListingWizardPage() {
 
   const editInitialized = useRef(false);
   const lastCategoryId = useRef<string | null>(null);
+  // Tracks whether the user changed steps while the edit data was still
+  // loading, so the post-load positioning never yanks them back to step 3.
+  const userNavigated = useRef(false);
   const [mlItemId, setMlItemId] = useState<string | null>(null);
   const [editError, setEditError] = useState("");
   const [mlItemError, setMlItemError] = useState(false);
@@ -1136,12 +1253,13 @@ export function ListingWizardPage() {
             mapping.platform_product_id
           );
           setMlItemId(mapping.platform_product_id);
-        } catch (exc: any) {
+        } catch (exc) {
+          const error = exc as { message?: string; status?: number; code?: string };
           const mlErrorMessage =
-            exc?.message
-              ? `Falha ao carregar dados do Mercado Livre: ${exc.message}`
+            error.message
+              ? `Falha ao carregar dados do Mercado Livre: ${error.message}`
               : "Falha ao carregar dados do Mercado Livre.";
-          if (exc?.status === 401 || exc?.code === "unauthorized") {
+          if (error.status === 401 || error.code === "unauthorized") {
             setMlItemError(
               true
             ); // handled below with specific message
@@ -1166,7 +1284,12 @@ export function ListingWizardPage() {
           stockQuantity: sku.stock_quantity,
           description: product.description ?? "",
         },
-        category: null,
+        category: mlItem?.category_id
+          ? {
+              category_id: mlItem.category_id,
+              category_name: mlItem.domain_id || mlItem.category_id,
+            }
+          : null,
         title: mlItem?.title ?? product.name,
         listingTypeId: (mlItem?.listing_type_id ??
           "gold_special") as ListingType,
@@ -1195,8 +1318,15 @@ export function ListingWizardPage() {
           required: false,
           value_name: a.value_name ?? "",
           value_id: a.value_id ?? undefined,
+          value_struct: a.value_struct ?? undefined,
         })),
       });
+
+      // Editing starts on step 3; keep it there once the data is populated
+      // unless the user already navigated to another step while loading.
+      if (isEdit && !userNavigated.current) {
+        setStep(3);
+      }
     } catch {
       setEditError(
         "Não foi possível carregar os dados do anúncio para edição."
@@ -1221,10 +1351,27 @@ export function ListingWizardPage() {
       return;
     }
     lastCategoryId.current = data.category.category_id;
-    setData((prev) => ({
-      ...prev,
-      attributes: categoryAttributes.map(toFormAttribute),
-    }));
+    setData((prev) => {
+      // Preserve values already loaded from the listing while replacing the
+      // field definitions with the category's current schema.
+      const mergedAttributes = categoryAttributes.map((catAttr) => {
+        const existing = prev.attributes.find((a) => a.id === catAttr.id);
+        const formAttr = toFormAttribute(catAttr);
+        if (existing) {
+          return {
+            ...formAttr,
+            value_name: existing.value_name || "",
+            value_id: existing.value_id,
+            value_struct: existing.value_struct,
+          };
+        }
+        return formAttr;
+      });
+      return {
+        ...prev,
+        attributes: mergedAttributes,
+      };
+    });
   }, [data.category, categoryAttributes, loadingAttributes]);
 
   const setField = useCallback(
@@ -1235,11 +1382,23 @@ export function ListingWizardPage() {
   );
 
   const setAttributeValue = useCallback(
-    (id: string, valueName: string, valueId?: string) => {
+    (
+      id: string,
+      valueName: string,
+      valueId?: string,
+      valueStruct?: { number: number; unit?: string }
+    ) => {
       setData((prev) => ({
         ...prev,
         attributes: prev.attributes.map((a) =>
-          a.id === id ? { ...a, value_name: valueName, value_id: valueId } : a
+          a.id === id
+            ? {
+                ...a,
+                value_name: valueName,
+                value_id: valueId,
+                value_struct: valueStruct,
+              }
+            : a
         ),
       }));
       setErrors((prev) => {
@@ -1315,12 +1474,14 @@ export function ListingWizardPage() {
       );
       return;
     }
+    userNavigated.current = true;
     setErrors({});
     setFormError("");
     setStep((prev) => (prev + 1) as WizardStep);
   }, [step, validateStep]);
 
   const handleBack = useCallback(() => {
+    userNavigated.current = true;
     setErrors({});
     setFormError("");
     setStep((prev) => (prev - 1) as WizardStep);
@@ -1354,10 +1515,13 @@ export function ListingWizardPage() {
     const attributes = data.attributes
       .map((a) => ({
         id: a.id,
-        value_name: a.value_name,
+        value_name: a.value_name.trim(),
         value_id: a.value_id,
+        ...(a.value_struct ? { value_struct: a.value_struct } : {}),
       }))
-      .filter((a) => a.value_name.trim().length > 0);
+      .filter(
+        (a) => a.value_name.length > 0 || Boolean(a.value_id)
+      );
 
     try {
       if (isEdit) {
@@ -1372,7 +1536,6 @@ export function ListingWizardPage() {
           p.source.includes("cloudinary.com")
         );
         const payload: UpdateMlItemRequest = {
-          title: data.title,
           price,
           available_quantity: quantity,
           ...(cloudinaryPictures.length > 0
@@ -1384,10 +1547,17 @@ export function ListingWizardPage() {
             : {}),
           attributes,
         };
-        if (data.description.trim()) {
-          payload.description = data.description;
-        }
+        // 1. Updates the editable fields (price, stock, attributes, new photos).
         await updateMlItem.mutateAsync({ itemId: mlItemId, payload });
+
+        // 2. Description lives outside PUT /items and is updated separately.
+        if (data.description.trim()) {
+          await createMlItemDescription.mutateAsync({
+            itemId: mlItemId,
+            plainText: data.description,
+          });
+        }
+
         notify({
           tone: "success",
           title: "Anúncio atualizado",
@@ -1439,20 +1609,26 @@ export function ListingWizardPage() {
       let message =
         caught instanceof ApiError
           ? caught.message
-          : "Falha ao publicar o anúncio no Mercado Livre.";
-      const details = (caught as any)?.details;
-      if (details?.ml_error) {
-        const err = details.ml_error;
-        const msg =
-          typeof err === "string"
-            ? err
-            : err?.message || err?.cause || JSON.stringify(err);
-        message = `Falha ao criar item no Mercado Livre: ${msg}`;
+          : isEdit
+            ? "Falha ao atualizar o anúncio no Mercado Livre."
+            : "Falha ao publicar o anúncio no Mercado Livre.";
+      const details =
+        caught instanceof ApiError
+          ? (caught.details as { ml_error?: unknown } | undefined)
+          : undefined;
+      const mlError = details?.ml_error;
+      if (mlError) {
+        const msg = formatMlError(mlError);
+        message = isEdit
+          ? `Falha ao atualizar item no Mercado Livre: ${msg}`
+          : `Falha ao criar item no Mercado Livre: ${msg}`;
       }
       setFormError(message);
       notify({
         tone: "error",
-        title: "Falha ao publicar anúncio",
+        title: isEdit
+          ? "Falha ao atualizar anúncio"
+          : "Falha ao publicar anúncio",
         description: message,
       });
     }
@@ -1558,6 +1734,7 @@ export function ListingWizardPage() {
                         if (n > step) {
                           return;
                         }
+                        userNavigated.current = true;
                         setErrors({});
                         setFormError("");
                         setStep(n as WizardStep);
