@@ -51,7 +51,7 @@ export function CloudinaryUploader({
   }, [onUploadComplete, urls]);
 
   const openWidget = useCallback(() => {
-    if (!window.cloudinary) return;
+    if (!window.cloudinary) {return;}
 
     const widget = window.cloudinary.createUploadWidget(
       {

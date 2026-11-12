@@ -46,12 +46,12 @@ function renderRoutes(initialEntry: string) {
 }
 
 describe("RequireAuth", () => {
-  it("leva para o login quando não há sessão", () => {
+  it("leva para o login quando não há sessão", async () => {
     vi.mocked(authClient.me).mockRejectedValue(new Error("Not authenticated"));
 
     renderRoutes("/products/new");
 
-    expect(screen.getByText("Tela de login")).toBeInTheDocument();
+    expect(await screen.findByText("Tela de login")).toBeInTheDocument();
     expect(
       screen.queryByText("Formulário de produto")
     ).not.toBeInTheDocument();

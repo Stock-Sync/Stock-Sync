@@ -51,7 +51,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=422,
-            content=error_payload("validation_error", "Request validation failed", serialize_errors(exc.errors())),
+            content=error_payload(
+                "validation_error", "Request validation failed", serialize_errors(exc.errors())
+            ),
         )
 
     @app.exception_handler(IntegrityError)

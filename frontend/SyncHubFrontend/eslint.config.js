@@ -63,6 +63,7 @@ export default defineConfig([
       "src/features/**/*.test.tsx",
       // O mock de rota devolve o payload snake_case do auth-service.
       "src/routes/**/*.test.tsx",
+      "src/auth/**/*.test.tsx",
       // O assistente de anúncios monta payloads com os nomes dos schemas do ML.
       "src/features/listings/ListingWizardPage.tsx",
       // Queries e formulários constroem payloads com os nomes dos schemas.

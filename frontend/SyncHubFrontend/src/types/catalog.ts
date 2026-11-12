@@ -95,7 +95,7 @@ export interface MercadoLivreCategoryAttribute {
   value_type: string;
   required: boolean;
   allowed_values?: { id: string; name: string }[];
-  tags?: Record<string, any>;
+  tags?: Record<string, unknown>;
 }
 
 /** Termos de venda (garantia, etc.) */

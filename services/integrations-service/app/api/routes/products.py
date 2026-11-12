@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/v1/integrations/mercadolivre", tags=["mercadoliv
 
 def get_tenant_id(request: Request) -> str:
     """Extract tenant_id from authenticated request.
-    
+
     Priority:
     1. X-Tenant-ID header (service-to-service)
     2. tenant_id cookie (explicit)
@@ -41,33 +41,32 @@ def get_tenant_id(request: Request) -> str:
     tenant_id = request.headers.get("X-Tenant-ID")
     if tenant_id:
         return tenant_id
-    
+
     # 2. Explicit tenant_id cookie
     tenant_id = request.cookies.get("tenant_id")
     if tenant_id:
         return tenant_id
-    
+
     # 3. Extract from access_token JWT (auth-service cookie)
     access_token = request.cookies.get("access_token")
     if access_token:
         try:
             payload = jwt.decode(
-                access_token, 
-                settings.jwt_secret_key, 
-                algorithms=[settings.jwt_algorithm]
+                access_token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
             )
             tenant_id = payload.get("tenant_id")
             if tenant_id:
                 return tenant_id
         except JWTError:
             pass  # Invalid token, continue to next method
-    
+
     raise HTTPException(status_code=401, detail="Tenant ID not found")
 
 
 # =============================================================================
 # Credentials Endpoints
 # =============================================================================
+
 
 class CredentialResponse(BaseModel):
     id: int
@@ -88,14 +87,14 @@ def list_credentials(
 ):
     """List Mercado Livre credentials for the authenticated tenant."""
     tenant_id = get_tenant_id(request)
-    
+
     credentials = session.exec(
         select(MarketplaceCredential).where(
             MarketplaceCredential.tenant_id == tenant_id,
             MarketplaceCredential.marketplace == Marketplace.mercadolivre,
         )
     ).all()
-    
+
     return [
         CredentialResponse(
             id=c.id,
@@ -120,23 +119,24 @@ def delete_credential(
 ):
     """Delete a Mercado Livre credential connection."""
     tenant_id = get_tenant_id(request)
-    
+
     credential = session.get(MarketplaceCredential, credential_id)
     if not credential:
         raise HTTPException(status_code=404, detail="Credential not found")
-    
+
     if credential.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this credential")
-    
+
     session.delete(credential)
     session.commit()
-    
+
     return {"message": "Mercado Livre connection removed successfully"}
 
 
 # =============================================================================
 # Category Attributes Endpoint
 # =============================================================================
+
 
 @router.get("/categories/{category_id}/attributes", response_model=list[CategoryAttributeValue])
 async def get_category_attributes(
@@ -146,22 +146,25 @@ async def get_category_attributes(
 ):
     """Get category attributes from Mercado Livre (cached for 24h)."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
     credential = await ml_service.get_valid_credential(tenant_id)
     if not credential:
         raise HTTPException(status_code=401, detail="No valid Mercado Livre credential found")
-    
+
     try:
         attributes = await ml_service.get_category_attributes(credential.access_token, category_id)
         return attributes
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch category attributes: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch category attributes: {str(e)}"
+        )
 
 
 # =============================================================================
 # Site Categories (árvore de categorias do Mercado Livre)
 # =============================================================================
+
 
 @router.get("/categories", response_model=list[dict[str, Any]])
 async def list_site_categories(
@@ -206,6 +209,7 @@ async def get_category(
 # Item Endpoints (User Products v3)
 # =============================================================================
 
+
 @router.post("/items", response_model=dict)
 async def create_ml_item(
     request: Request,
@@ -214,9 +218,9 @@ async def create_ml_item(
 ):
     """Create a new listing via User Products v3 API."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
-    
+
     try:
         result = await ml_service.create_item_v3(tenant_id, payload.model_dump(exclude_none=True))
         # Sync to local database
@@ -267,9 +271,9 @@ async def list_ml_items(
 ):
     """List Mercado Livre items with pagination."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
-    
+
     try:
         result = await ml_service.list_items(tenant_id, page, limit, search, status)
         return ItemListResponse(
@@ -293,9 +297,9 @@ async def get_ml_item(
 ):
     """Get single item details."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
-    
+
     try:
         item = await ml_service.get_item(tenant_id, item_id)
         return ItemResponse.model_validate(item)
@@ -314,11 +318,13 @@ async def update_ml_item(
 ):
     """Update an existing listing (only editable fields)."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
-    
+
     try:
-        result = await ml_service.update_item(tenant_id, item_id, payload.model_dump(exclude_none=True))
+        result = await ml_service.update_item(
+            tenant_id, item_id, payload.model_dump(exclude_none=True)
+        )
         # Sync to local database
         credential = await ml_service.get_valid_credential(tenant_id)
         if credential:
@@ -338,12 +344,12 @@ async def delete_ml_item(
 ):
     """Delete/pause an item on Mercado Livre."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
-    
+
     try:
         await ml_service.delete_item(tenant_id, item_id)
-        
+
         # Also delete from local database
         item = session.exec(
             select(MarketplaceItem).where(
@@ -354,7 +360,7 @@ async def delete_ml_item(
         if item:
             session.delete(item)
             session.commit()
-        
+
         return {"message": "Item deleted successfully"}
     except APIError:
         raise
@@ -365,6 +371,7 @@ async def delete_ml_item(
 # =============================================================================
 # Picture Upload Endpoint
 # =============================================================================
+
 
 class PictureUploadRequest(BaseModel):
     source: str  # Cloudinary URL
@@ -378,12 +385,12 @@ async def upload_picture(
 ):
     """Upload a picture to Mercado Livre CDN via Cloudinary URL."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
     credential = await ml_service.get_valid_credential(tenant_id)
     if not credential:
         raise HTTPException(status_code=401, detail="No valid Mercado Livre credential found")
-    
+
     try:
         secure_url = await ml_service.upload_picture(credential.access_token, payload.source)
         return MLPictureUploadResponse(secure_url=secure_url)
@@ -397,6 +404,7 @@ async def upload_picture(
 # Category Attributes Response Endpoint (with metadata)
 # =============================================================================
 
+
 @router.get("/categories/{category_id}/attributes/full", response_model=MLCategoryAttributeResponse)
 async def get_category_attributes_full(
     category_id: str,
@@ -405,12 +413,12 @@ async def get_category_attributes_full(
 ):
     """Get category attributes with metadata (cached for 24h)."""
     tenant_id = get_tenant_id(request)
-    
+
     ml_service = MercadoLivreService(session)
     credential = await ml_service.get_valid_credential(tenant_id)
     if not credential:
         raise HTTPException(status_code=401, detail="No valid Mercado Livre credential found")
-    
+
     try:
         attributes = await ml_service.get_category_attributes(credential.access_token, category_id)
         # Extract category name from attributes if available
@@ -423,4 +431,6 @@ async def get_category_attributes_full(
             expires_at=datetime.now(UTC) + timedelta(hours=24),
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch category attributes: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch category attributes: {str(e)}"
+        )

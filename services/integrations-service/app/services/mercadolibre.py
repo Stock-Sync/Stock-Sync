@@ -25,15 +25,17 @@ class MercadoLivreService:
         self.session = session
         self.client_id = settings.mercado_livre_app_id
         self.client_secret = settings.mercado_livre_client_secret
-        self.redirect_uri = "https://dreamt-roundness-tightwad.ngrok-free.dev/api/v1/auth/mercadolivre/callback"
+        self.redirect_uri = (
+            "https://dreamt-roundness-tightwad.ngrok-free.dev/api/v1/auth/mercadolivre/callback"
+        )
         self._redis: redis.Redis | None = None
-        
+
         # Initialize Cloudinary
         cloudinary.config(
             cloud_name=settings.cloudinary_cloud_name,
             api_key=settings.cloudinary_api_key,
             api_secret=settings.cloudinary_api_secret,
-            secure=True
+            secure=True,
         )
 
     @property
@@ -64,7 +66,10 @@ class MercadoLivreService:
                     "code": code,
                     "redirect_uri": self.redirect_uri,
                 },
-                headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
             )
             response.raise_for_status()
             return response.json()
@@ -80,7 +85,10 @@ class MercadoLivreService:
                     "client_secret": self.client_secret,
                     "refresh_token": refresh_token,
                 },
-                headers={"Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
             )
             response.raise_for_status()
             return response.json()
@@ -171,7 +179,9 @@ class MercadoLivreService:
 
         return credential
 
-    async def _refresh_credential(self, credential: MarketplaceCredential) -> MarketplaceCredential | None:
+    async def _refresh_credential(
+        self, credential: MarketplaceCredential
+    ) -> MarketplaceCredential | None:
         """Refresh expired credential."""
         if not credential.refresh_token:
             return None
@@ -219,7 +229,7 @@ class MercadoLivreService:
                 fetch_format="auto",
                 width=1000,
                 height=1000,
-                crop="limit"
+                crop="limit",
             )
             return result["secure_url"]
         except Exception as e:
@@ -297,7 +307,9 @@ class MercadoLivreService:
         children = category.get("children_categories", [])
         return len(children) == 0
 
-    async def create_item_description(self, access_token: str, item_id: str, description: str) -> dict[str, Any]:
+    async def create_item_description(
+        self, access_token: str, item_id: str, description: str
+    ) -> dict[str, Any]:
         """Create description for an item (separate call in v3)."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -312,14 +324,17 @@ class MercadoLivreService:
             response.raise_for_status()
             return response.json()
 
-    async def get_category_attributes(self, access_token: str, category_id: str) -> list[dict[str, Any]]:
+    async def get_category_attributes(
+        self, access_token: str, category_id: str
+    ) -> list[dict[str, Any]]:
         """Get category attributes from Mercado Livre with Redis caching."""
         cache_key = f"ml:category:attributes:{category_id}"
-        
+
         # Try to get from cache
         cached = await self.redis.get(cache_key)
         if cached:
             import json
+
             return json.loads(cached)
 
         # Fetch from ML API
@@ -333,15 +348,20 @@ class MercadoLivreService:
 
             # Cache for 24 hours (86400 seconds)
             import json
+
             await self.redis.setex(cache_key, 86400, json.dumps(data))
-            
+
             return data
 
     async def create_item_v3(self, tenant_id: str, item_data: dict[str, Any]) -> dict[str, Any]:
         """Create an item using User Products v3 API."""
         credential = await self.get_valid_credential(tenant_id)
         if not credential:
-            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+            raise APIError(
+                status_code=401,
+                code="unauthorized",
+                message="No valid Mercado Livre credential found",
+            )
 
         # Check user_product_seller tag
         has_tag = await self.check_user_product_tag(credential.access_token)
@@ -349,7 +369,7 @@ class MercadoLivreService:
             raise APIError(
                 status_code=422,
                 code="user_product_tag_missing",
-                message="Your Mercado Livre account does not yet support the User Products model. Please wait for the platform to automatically enable it."
+                message="Your Mercado Livre account does not yet support the User Products model. Please wait for the platform to automatically enable it.",
             )
 
         # Validate category is leaf
@@ -360,7 +380,7 @@ class MercadoLivreService:
                 raise APIError(
                     status_code=422,
                     code="invalid_category",
-                    message=f"Category {category_id} is not a leaf category. Please select a leaf category."
+                    message=f"Category {category_id} is not a leaf category. Please select a leaf category.",
                 )
 
         # Upload pictures to ML CDN
@@ -434,11 +454,17 @@ class MercadoLivreService:
 
         return result
 
-    async def update_item(self, tenant_id: str, item_id: str, item_data: dict[str, Any]) -> dict[str, Any]:
+    async def update_item(
+        self, tenant_id: str, item_id: str, item_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Update an existing item (only editable fields)."""
         credential = await self.get_valid_credential(tenant_id)
         if not credential:
-            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+            raise APIError(
+                status_code=401,
+                code="unauthorized",
+                message="No valid Mercado Livre credential found",
+            )
 
         # Upload new pictures if provided
         cloudinary_urls = item_data.get("pictures", [])
@@ -463,7 +489,11 @@ class MercadoLivreService:
         """Delete/pause an item."""
         credential = await self.get_valid_credential(tenant_id)
         if not credential:
-            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+            raise APIError(
+                status_code=401,
+                code="unauthorized",
+                message="No valid Mercado Livre credential found",
+            )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.delete(
@@ -487,7 +517,11 @@ class MercadoLivreService:
         """List items with pagination (converts page/limit to offset/limit)."""
         credential = await self.get_valid_credential(tenant_id)
         if not credential:
-            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+            raise APIError(
+                status_code=401,
+                code="unauthorized",
+                message="No valid Mercado Livre credential found",
+            )
 
         offset = (page - 1) * limit
         params = {"offset": offset, "limit": limit}
@@ -504,11 +538,11 @@ class MercadoLivreService:
             )
             response.raise_for_status()
             data = response.json()
-            
+
             # Transform ML response to our format
             results = data.get("results", [])
             total = data.get("paging", {}).get("total", 0)
-            
+
             return {
                 "items": results,
                 "page": page,
@@ -521,7 +555,11 @@ class MercadoLivreService:
         """Get single item details."""
         credential = await self.get_valid_credential(tenant_id)
         if not credential:
-            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+            raise APIError(
+                status_code=401,
+                code="unauthorized",
+                message="No valid Mercado Livre credential found",
+            )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
@@ -535,7 +573,11 @@ class MercadoLivreService:
         """Get item description."""
         credential = await self.get_valid_credential(tenant_id)
         if not credential:
-            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+            raise APIError(
+                status_code=401,
+                code="unauthorized",
+                message="No valid Mercado Livre credential found",
+            )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
@@ -549,11 +591,17 @@ class MercadoLivreService:
     # Webhook Methods
     # =========================================================================
 
-    async def subscribe_webhook(self, tenant_id: str, callback_url: str, topics: list[str]) -> dict[str, Any]:
+    async def subscribe_webhook(
+        self, tenant_id: str, callback_url: str, topics: list[str]
+    ) -> dict[str, Any]:
         """Subscribe to Mercado Livre webhook notifications."""
         credential = await self.get_valid_credential(tenant_id)
         if not credential:
-            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+            raise APIError(
+                status_code=401,
+                code="unauthorized",
+                message="No valid Mercado Livre credential found",
+            )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -574,7 +622,11 @@ class MercadoLivreService:
         """Unsubscribe from Mercado Livre webhook."""
         credential = await self.get_valid_credential(tenant_id)
         if not credential:
-            raise APIError(status_code=401, code="unauthorized", message="No valid Mercado Livre credential found")
+            raise APIError(
+                status_code=401,
+                code="unauthorized",
+                message="No valid Mercado Livre credential found",
+            )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.delete(
@@ -588,7 +640,9 @@ class MercadoLivreService:
     # Local Database Sync Methods
     # =========================================================================
 
-    def sync_item_to_local(self, tenant_id: str, item_data: dict[str, Any], ml_user_id: int) -> MarketplaceItem:
+    def sync_item_to_local(
+        self, tenant_id: str, item_data: dict[str, Any], ml_user_id: int
+    ) -> MarketplaceItem:
         """Sync Mercado Livre item to local database.
 
         Reads the transient keys set by create_item_v3 (`_sku_id`,
@@ -679,7 +733,9 @@ class MercadoLivreService:
         self.session.refresh(item)
         return item
 
-    def handle_webhook_item(self, tenant_id: str, item_data: dict[str, Any]) -> MarketplaceItem | None:
+    def handle_webhook_item(
+        self, tenant_id: str, item_data: dict[str, Any]
+    ) -> MarketplaceItem | None:
         """Process item webhook notification and sync to local DB."""
         ml_user_id = item_data.get("seller_id")
         if not ml_user_id:

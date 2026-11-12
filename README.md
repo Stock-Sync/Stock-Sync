@@ -142,6 +142,37 @@ alembic upgrade head
 
 Nos containers, o `alembic upgrade head` roda automaticamente antes do `uvicorn` (ver `Dockerfile`).
 
+## CI/CD
+
+O repositório usa GitHub Actions com dois workflows independentes, acionados por `pull_request` e por `push` na `main`. Cada um roda apenas quando os arquivos da sua área mudam:
+
+- `.github/workflows/backend-ci.yml` — Ruff (`check` + `format --check`) e testes do backend.
+- `.github/workflows/frontend-ci.yml` — ESLint, TypeScript, testes (Vitest) e build do frontend.
+
+Os mesmos comandos podem ser executados localmente:
+
+```bash
+# Backend (na raiz)
+ruff check services/catalog-service services/sales-service services/sync-service
+ruff format --check .
+cd services/catalog-service && python -m pytest
+
+# Frontend
+cd frontend/SyncHubFrontend
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
+```
+
+> **Dívida técnica:** `auth-service` e `integrations-service` ainda possuem violações de lint. Eles são verificados no CI em modo informativo (`continue-on-error`) até a limpeza na Fase 2.
+
+### Proteção da branch `main`
+
+Recomenda-se configurar no GitHub:
+
+- Pull request obrigatório com pelo menos uma revisão.
+- Checks `Lint (Ruff)`, `Testes (catalog-service)` e `Lint, tipos, testes e build` como obrigatórios.
+- Bloqueio de push direto na `main`.
+
 ## Status do projeto
 
 🚧 Em desenvolvimento — base do MVP configurada: FastAPI, PostgreSQL via SQLModel, Alembic por serviço, schemas, erros padronizados, logging estruturado e testes do catálogo. 

@@ -23,15 +23,33 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain_bytes, hashed_bytes)
 
 
-def create_access_token(subject: str, tenant_id: str | int, expires_delta: timedelta | None = None) -> str:
-    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes))
-    to_encode: dict[str, Any] = {"sub": subject, "tenant_id": str(tenant_id), "type": "access", "exp": expire}
+def create_access_token(
+    subject: str, tenant_id: str | int, expires_delta: timedelta | None = None
+) -> str:
+    expire = datetime.now(UTC) + (
+        expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes)
+    )
+    to_encode: dict[str, Any] = {
+        "sub": subject,
+        "tenant_id": str(tenant_id),
+        "type": "access",
+        "exp": expire,
+    }
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_refresh_token(subject: str, tenant_id: str | int, expires_delta: timedelta | None = None) -> str:
-    expire = datetime.now(UTC) + (expires_delta or timedelta(days=settings.jwt_refresh_token_expire_days))
-    to_encode: dict[str, Any] = {"sub": subject, "tenant_id": str(tenant_id), "type": "refresh", "exp": expire}
+def create_refresh_token(
+    subject: str, tenant_id: str | int, expires_delta: timedelta | None = None
+) -> str:
+    expire = datetime.now(UTC) + (
+        expires_delta or timedelta(days=settings.jwt_refresh_token_expire_days)
+    )
+    to_encode: dict[str, Any] = {
+        "sub": subject,
+        "tenant_id": str(tenant_id),
+        "type": "refresh",
+        "exp": expire,
+    }
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 

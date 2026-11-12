@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, AlertCircle, ExternalLink, Trash2, Loader2, CheckCircle } from "lucide-react";
 import { Card, CardBody, CardHeader } from "../../components/ui/Card";
@@ -22,7 +22,7 @@ export function IntegrationsPage() {
   const [connecting, setConnecting] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const loadCredentials = async () => {
+  const loadCredentials = useCallback(async () => {
     try {
       const creds = await integrationsClient.listMercadoLivreCredentials();
       setCredentials(
@@ -38,19 +38,20 @@ export function IntegrationsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [notify]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial assíncrona
     loadCredentials();
-  }, []);
+  }, [loadCredentials]);
 
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      const { auth_url } = await integrationsClient.getMercadoLivreAuthUrl();
+      const { auth_url: authUrl } = await integrationsClient.getMercadoLivreAuthUrl();
       // Redirect to Mercado Livre OAuth
-      window.location.href = auth_url;
-    } catch (error) {
+      window.location.href = authUrl;
+    } catch {
       notify({ tone: "error", title: "Erro ao iniciar conexão" });
       setConnecting(false);
     }
@@ -61,12 +62,12 @@ export function IntegrationsPage() {
   };
 
   const confirmDisconnect = async () => {
-    if (!deletingId) return;
+    if (!deletingId) {return;}
     try {
       await integrationsClient.deleteMercadoLivreCredential(deletingId);
       notify({ tone: "success", title: "Conta desconectada" });
       loadCredentials();
-    } catch (error) {
+    } catch {
       notify({ tone: "error", title: "Erro ao desconectar" });
     } finally {
       setDeletingId(null);
@@ -76,13 +77,13 @@ export function IntegrationsPage() {
   const cancelDisconnect = () => setDeletingId(null);
 
   const getProfileUrl = (nickname: string | null) => {
-    if (!nickname) return null;
+    if (!nickname) {return null;}
     return `https://perfil.mercadolivre.com.br/${nickname}`;
   };
 
   const renderProfileLink = (nickname: string | null) => {
     const url = getProfileUrl(nickname);
-    if (!url) return null;
+    if (!url) {return null;}
     return (
       <Link
         to={url}
@@ -90,7 +91,7 @@ export function IntegrationsPage() {
         rel="noopener noreferrer"
         title="Ver perfil no Mercado Livre"
         className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
-        aria-label={`Ver perfil no Mercado Livre`}
+        aria-label={"Ver perfil no Mercado Livre"}
       >
         <ExternalLink aria-hidden="true" className="h-4 w-4" />
       </Link>
@@ -98,12 +99,12 @@ export function IntegrationsPage() {
   };
 
   const formatExpiresAt = (dateStr: string | null) => {
-    if (!dateStr) return "Não expira";
+    if (!dateStr) {return "Não expira";}
     const date = new Date(dateStr);
     const now = new Date();
-    if (date < now) return "Expirado";
+    if (date < now) {return "Expirado";}
     const diffHours = Math.floor((date.getTime() - now.getTime()) / (1000 * 60 * 60));
-    if (diffHours < 24) return `Expira em ${diffHours}h`;
+    if (diffHours < 24) {return `Expira em ${diffHours}h`;}
     const diffDays = Math.floor(diffHours / 24);
     return `Expira em ${diffDays}d`;
   };

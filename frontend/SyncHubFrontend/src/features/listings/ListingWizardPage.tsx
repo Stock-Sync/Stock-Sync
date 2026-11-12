@@ -1398,13 +1398,23 @@ export function ListingWizardPage() {
         caught instanceof ApiError
           ? caught.message
           : "Falha ao publicar o anúncio no Mercado Livre.";
-      const details = (caught as any)?.details;
+      const details =
+        caught instanceof ApiError &&
+        typeof caught.details === "object" &&
+        caught.details !== null
+          ? (caught.details as { ml_error?: unknown })
+          : undefined;
       if (details?.ml_error) {
         const err = details.ml_error;
-        const msg =
-          typeof err === "string"
-            ? err
-            : err?.message || err?.cause || JSON.stringify(err);
+        let msg: string;
+        if (typeof err === "string") {
+          msg = err;
+        } else if (typeof err === "object" && err !== null) {
+          const record = err as Record<string, unknown>;
+          msg = String(record.message ?? record.cause ?? JSON.stringify(err));
+        } else {
+          msg = JSON.stringify(err);
+        }
         message = `Falha ao criar item no Mercado Livre: ${msg}`;
       }
       setFormError(message);

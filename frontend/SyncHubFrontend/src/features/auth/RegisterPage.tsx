@@ -40,7 +40,7 @@ export function RegisterPage() {
     if (!/\d/.test(password)) {
       return "A senha deve conter pelo menos um número";
     }
-    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
       return "A senha deve conter pelo menos um símbolo (!@#$%^&*...)";
     }
     if (password !== confirmPassword) {

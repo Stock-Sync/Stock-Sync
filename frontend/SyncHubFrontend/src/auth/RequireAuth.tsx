@@ -14,8 +14,12 @@ import { useAuth } from "./auth-context";
  * componente; ver `routes/index.tsx`.
  */
 export function RequireAuth() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
+
+  if (isLoading) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return (

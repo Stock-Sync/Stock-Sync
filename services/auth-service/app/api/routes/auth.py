@@ -71,7 +71,9 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
 
 
 @router.post("/login", response_model=UserResponse)
-def login(payload: LoginRequest, response: Response, session: Session = Depends(get_session)) -> UserResponse:
+def login(
+    payload: LoginRequest, response: Response, session: Session = Depends(get_session)
+) -> UserResponse:
     user = session.exec(select(User).where(User.email == payload.email)).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise UnauthorizedError("Invalid credentials")
@@ -94,7 +96,9 @@ def login(payload: LoginRequest, response: Response, session: Session = Depends(
 
 
 @router.post("/refresh", response_model=UserResponse)
-def refresh(response: Response, request: Request, session: Session = Depends(get_session)) -> UserResponse:
+def refresh(
+    response: Response, request: Request, session: Session = Depends(get_session)
+) -> UserResponse:
     from fastapi import Request
 
     refresh_token = request.cookies.get("refresh_token")

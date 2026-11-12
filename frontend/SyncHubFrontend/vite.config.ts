@@ -11,44 +11,44 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // Most specific paths FIRST (longest prefix wins)
-      '/api/v1/auth/mercadolivre': {
-        target: 'http://localhost:8003',
+      "/api/v1/auth/mercadolivre": {
+        target: "http://localhost:8003",
         changeOrigin: true,
-        cookieDomainRewrite: { 'localhost': '' },
-        cookiePathRewrite: { '/': '/' },
+        cookieDomainRewrite: { "localhost": "" },
+        cookiePathRewrite: { "/": "/" },
       },
-      '/api/v1/integrations': {
-        target: 'http://localhost:8003',
+      "/api/v1/integrations": {
+        target: "http://localhost:8003",
         changeOrigin: true,
-        cookieDomainRewrite: { 'localhost': '' },
-        cookiePathRewrite: { '/': '/' },
+        cookieDomainRewrite: { "localhost": "" },
+        cookiePathRewrite: { "/": "/" },
       },
-      '/api/v1/products': {
-        target: 'http://localhost:8001',
-        changeOrigin: true,
-      },
-      '/api/v1/skus': {
-        target: 'http://localhost:8001',
+      "/api/v1/products": {
+        target: "http://localhost:8001",
         changeOrigin: true,
       },
-      '/api/v1/platform-mappings': {
-        target: 'http://localhost:8001',
+      "/api/v1/skus": {
+        target: "http://localhost:8001",
         changeOrigin: true,
       },
-      '/api/v1/stores': {
-        target: 'http://localhost:8001',
+      "/api/v1/platform-mappings": {
+        target: "http://localhost:8001",
         changeOrigin: true,
       },
-      '/api/v1/orders': {
-        target: 'http://localhost:8004',
+      "/api/v1/stores": {
+        target: "http://localhost:8001",
+        changeOrigin: true,
+      },
+      "/api/v1/orders": {
+        target: "http://localhost:8004",
         changeOrigin: true,
       },
       // Auth service LAST (shortest prefix)
-      '/api/v1/auth': {
-        target: 'http://localhost:8000',
+      "/api/v1/auth": {
+        target: "http://localhost:8000",
         changeOrigin: true,
-        cookieDomainRewrite: { 'localhost': '' },
-        cookiePathRewrite: { '/': '/' },
+        cookieDomainRewrite: { "localhost": "" },
+        cookiePathRewrite: { "/": "/" },
       },
     },
   },
@@ -58,6 +58,5 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: true,
-    isolate: false,
   },
 });

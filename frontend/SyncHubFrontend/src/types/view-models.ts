@@ -87,7 +87,7 @@ export interface MercadoLivreAttribute {
   min_length?: number;
   max_length?: number;
   allowed_values?: { id: string; name: string }[];
-  tags?: Record<string, any>;
+  tags?: Record<string, unknown>;
 }
 
 /** Tipos de venda para Mercado Livre */

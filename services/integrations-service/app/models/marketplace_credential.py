@@ -18,22 +18,22 @@ class MarketplaceCredential(SQLModel, table=True):
     marketplace: Marketplace = Field(index=True)
     account_name: str = Field(min_length=1, max_length=120)
     ml_user_id: int | None = Field(
-        default=None,
-        unique=True,
-        description="Mercado Livre numeric seller ID",
-        sa_type=BigInteger
+        default=None, unique=True, description="Mercado Livre numeric seller ID", sa_type=BigInteger
     )
     ml_nickname: str | None = Field(
         default=None,
         max_length=100,
-        description="Mercado Livre nickname/username for public profile URL"
+        description="Mercado Livre nickname/username for public profile URL",
     )
     access_token: str = Field(min_length=1, max_length=2000)
     refresh_token: str | None = Field(default=None, max_length=2000)
     expires_at: datetime | None = Field(default=None)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_column_kwargs={"onupdate": lambda: datetime.now(UTC)})
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(UTC)},
+    )
 
 
 class MarketplaceItem(SQLModel, table=True):
@@ -53,19 +53,29 @@ class MarketplaceItem(SQLModel, table=True):
     family_name: str | None = Field(default=None, max_length=255)
     listing_type_id: str | None = Field(default=None, max_length=30)
     # Vínculo com o catálogo interno (products-service) e contexto do anúncio
-    sku_id: int | None = Field(default=None, index=True, description="Local SKU that originated this listing")
-    product_id: int | None = Field(default=None, index=True, description="Local product that originated this listing")
-    category_id: str | None = Field(default=None, max_length=50, description="Mercado Livre leaf category ID")
+    sku_id: int | None = Field(
+        default=None, index=True, description="Local SKU that originated this listing"
+    )
+    product_id: int | None = Field(
+        default=None, index=True, description="Local product that originated this listing"
+    )
+    category_id: str | None = Field(
+        default=None, max_length=50, description="Mercado Livre leaf category ID"
+    )
     condition: str | None = Field(default=None, max_length=10, description="new | used")
-    description: str | None = Field(default=None, description="Plain text description sent to Mercado Livre")
+    description: str | None = Field(
+        default=None, description="Plain text description sent to Mercado Livre"
+    )
     attributes: Optional[Dict] = Field(
-        default=None,
-        sa_column=Column(postgresql.JSONB, nullable=True)
+        default=None, sa_column=Column(postgresql.JSONB, nullable=True)
     )
     raw_payload: Optional[Dict] = Field(
-        default=None,
-        sa_column=Column(postgresql.JSONB, nullable=True)
+        default=None, sa_column=Column(postgresql.JSONB, nullable=True)
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_column_kwargs={"onupdate": lambda: datetime.now(UTC)}, nullable=False)
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(UTC)},
+        nullable=False,
+    )
     last_synced_at: datetime | None = Field(default=None)
