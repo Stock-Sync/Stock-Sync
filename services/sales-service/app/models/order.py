@@ -1,13 +1,26 @@
 from datetime import UTC, datetime
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
 class Order(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "marketplace",
+            "marketplace_order_id",
+            "marketplace_item_id",
+            name="uq_order_tenant_marketplace_item",
+        ),
+    )
+
     id: int | None = Field(default=None, primary_key=True)
+    tenant_id: str = Field(index=True, max_length=64)
     marketplace: str = Field(index=True, max_length=50)
     marketplace_order_id: str = Field(index=True, max_length=100)
-    # One order can contain several items; the pair (order, item) is unique.
+    # One order can contain several items; the tuple
+    # (tenant, marketplace, order, item) is unique.
     marketplace_item_id: str = Field(default="", max_length=100)
     # Catalog SKU link: nullable because a sale can reference an item that is
     # not mapped to any internal SKU (listing created directly on the marketplace).
@@ -21,6 +34,10 @@ class Order(SQLModel, table=True):
     total_amount: float = Field(ge=0)
     currency: str = Field(default="BRL", max_length=3)
     status: str = Field(index=True, max_length=50)
+    # Variations are unsupported. The sale is still recorded for history, but
+    # the flag makes the item visible for review instead of silently moving
+    # the parent SKU.
+    is_variation: bool = Field(default=False)
     ordered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

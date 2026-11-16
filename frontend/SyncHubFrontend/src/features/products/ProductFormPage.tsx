@@ -249,10 +249,19 @@ export function ProductFormPage({ mode }: { mode: "create" | "edit" }) {
     } catch (caught) {
       if (
         caught instanceof ApiError &&
+        (caught.status === 400 || caught.code === "internal_sku_locked")
+      ) {
+        setServerErrors({
+          sku: caught.message || "Não é possível alterar o código SKU de um produto com anúncios ativos vinculados.",
+        });
+        return;
+      }
+      if (
+        caught instanceof ApiError &&
         (caught.status === 409 || caught.code === "conflict")
       ) {
         setServerErrors({
-          sku: `O SKU "${values.sku.trim()}" pertence a um produto desativado/arquivado e não pode ser reutilizado, para preservar o histórico financeiro.`,
+          sku: caught.message || `Já existe um SKU ativo com este código neste tenant.`,
         });
         return;
       }

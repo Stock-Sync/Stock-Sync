@@ -15,6 +15,7 @@ from app.db.session import get_session
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    settings.validate_production_hardening()
     yield
 
 
@@ -24,11 +25,26 @@ app.add_middleware(RequestLoggingMiddleware)
 register_exception_handlers(app)
 
 app.include_router(products.router, prefix="/api/v1/products", tags=["products"])
+app.include_router(
+    products.internal_router,
+    prefix="/api/v1/internal/products",
+    tags=["internal-products"],
+)
 app.include_router(skus.router, prefix="/api/v1/skus", tags=["skus"])
+app.include_router(
+    skus.internal_router,
+    prefix="/api/v1/internal/skus",
+    tags=["internal-skus"],
+)
 app.include_router(
     platform_mappings.router,
     prefix="/api/v1/platform-mappings",
     tags=["platform-mappings"],
+)
+app.include_router(
+    platform_mappings.internal_router,
+    prefix="/api/v1/internal/platform-mappings",
+    tags=["internal-platform-mappings"],
 )
 
 

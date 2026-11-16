@@ -6,6 +6,9 @@ export interface PullListingsResult {
   items_found: number;
   items_upserted: number;
   mappings_created: number;
+  items_removed?: number;
+  items_removed_ids?: string[];
+  flagged?: boolean;
   errors: string[];
 }
 
@@ -16,6 +19,8 @@ export interface SyncStatus {
     items_found: number;
     items_upserted: number;
     mappings_created: number;
+    items_removed?: number;
+    items_removed_ids?: string[];
     started_at: string;
     finished_at: string | null;
     error_summary: string | null;

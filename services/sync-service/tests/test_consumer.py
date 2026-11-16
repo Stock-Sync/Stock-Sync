@@ -14,6 +14,7 @@ from app.streams.consts import (
     STREAM_KEY,
 )
 from app.streams.consumer import EventConsumer
+from sqlalchemy.exc import IntegrityError
 
 
 class FakeProcessor:
@@ -38,7 +39,13 @@ class FakeProcessor:
     async def get_item(self, tenant_id: str, item_id: str) -> dict:
         return {"id": item_id, "title": f"Item {item_id}", "available_quantity": 10}
 
-    async def upsert_local_item(self, tenant_id: str, item_data: dict) -> dict:
+    async def upsert_local_item(
+        self,
+        tenant_id: str,
+        item_data: dict,
+        event_timestamp=None,
+    ) -> dict:
+        self.last_event_timestamp = event_timestamp
         self.calls.append(("upsert_local_item", item_data))
         return {"item_id": item_data.get("id"), "sku_id": None}
 
@@ -70,22 +77,168 @@ async def _publish(redis, event_type, payload, event_id):
     )
 
 
+class _FakeResult:
+    def __init__(self, value: SyncEvent | None):
+        self._value = value
+
+    def first(self) -> SyncEvent | None:
+        return self._value
+
+
+class _FakeSession:
+    """Minimal Session double that fails commits a configurable number of times."""
+
+    def __init__(self, existing: SyncEvent | None = None, fail_commits: int = 1):
+        self.existing = existing
+        self.fail_commits = fail_commits
+        self.commit_calls = 0
+        self.rollback_calls = 0
+        self.refresh_calls = 0
+        self.select_calls = 0
+        self.added: list[SyncEvent] = []
+        self.closed = False
+
+    def exec(self, _statement):
+        self.select_calls += 1
+        # The fast-path SELECT misses; recovery SELECTs return the winner (when
+        # the fake session has one) or miss again to exercise the retry path.
+        return _FakeResult(None if self.select_calls == 1 else self.existing)
+
+    def add(self, record: SyncEvent) -> None:
+        self.added.append(record)
+
+    def commit(self) -> None:
+        self.commit_calls += 1
+        if self.commit_calls <= self.fail_commits:
+            raise IntegrityError(
+                "INSERT INTO syncevent ...",
+                {},
+                Exception("duplicate key value violates unique constraint"),
+            )
+
+    def rollback(self) -> None:
+        self.rollback_calls += 1
+
+    def refresh(self, record: SyncEvent) -> None:
+        self.refresh_calls += 1
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _consumer_with_session(session: _FakeSession) -> EventConsumer:
+    return EventConsumer(redis_client=object(), session_factory=lambda: session)
+
+
+def test_get_or_create_event_integrity_error_recovery():
+    existing = SyncEvent(
+        id=1,
+        event_type=EVENT_STOCK_ADJUST,
+        dedupe_key="dup-1",
+        payload={"sku_id": 1},
+    )
+    session = _FakeSession(existing=existing)
+
+    result = _consumer_with_session(session)._get_or_create_event(
+        EVENT_STOCK_ADJUST, "dup-1", {"sku_id": 1}
+    )
+
+    assert result is existing
+    assert session.commit_calls == 1
+    assert session.rollback_calls == 1
+    assert session.refresh_calls == 0
+    assert session.select_calls == 2
+    assert session.closed
+
+
+def test_get_or_create_event_none_dedupe_key_propagates_error():
+    session = _FakeSession()
+
+    with pytest.raises(IntegrityError):
+        _consumer_with_session(session)._get_or_create_event(
+            EVENT_STOCK_ADJUST, None, {"sku_id": 1}
+        )
+
+    assert session.commit_calls == 1
+    assert session.rollback_calls == 1
+    assert session.select_calls == 0
+    assert session.closed
+
+
+def test_get_or_create_event_retries_insert_when_recovery_is_empty():
+    session = _FakeSession(existing=None, fail_commits=1)
+
+    result = _consumer_with_session(session)._get_or_create_event(
+        EVENT_STOCK_ADJUST, "dup-2", {"sku_id": 2}
+    )
+
+    assert result is session.added[-1]
+    assert session.commit_calls == 2
+    assert session.rollback_calls == 1
+    assert session.refresh_calls == 1
+    assert session.closed
+
+
+def test_get_or_create_event_second_integrity_error_propagates():
+    session = _FakeSession(existing=None, fail_commits=2)
+
+    with pytest.raises(IntegrityError):
+        _consumer_with_session(session)._get_or_create_event(
+            EVENT_STOCK_ADJUST, "dup-3", {"sku_id": 3}
+        )
+
+    assert session.commit_calls == 2
+    assert session.rollback_calls == 2
+    assert session.closed
+
+
 @pytest.mark.asyncio
 async def test_stock_adjust_is_processed_and_acked(db_session, fake_redis):
     processor = FakeProcessor()
     consumer = _make_consumer(db_session, processor, fake_redis)
     await consumer.ensure_group()
     await _publish(
-        fake_redis, EVENT_STOCK_ADJUST, {"sku_id": 1, "new_quantity": 5}, "sa-1"
+        fake_redis,
+        EVENT_STOCK_ADJUST,
+        {"sku_id": 1, "new_quantity": 5, "tenant_id": "tenant-1"},
+        "sa-1",
     )
 
     await consumer._read_once(block_ms=1)
 
-    assert processor.calls == [("stock_adjust", {"sku_id": 1, "new_quantity": 5})]
+    assert processor.calls == [
+        (
+            "stock_adjust",
+            {"sku_id": 1, "new_quantity": 5, "tenant_id": "tenant-1"},
+        )
+    ]
     pending = await fake_redis.xpending(STREAM_KEY, CONSUMER_GROUP)
     assert pending["pending"] == 0
     record = db_session.query(SyncEvent).filter_by(dedupe_key="sa-1").one()
     assert record.status == "processed"
+
+
+@pytest.mark.asyncio
+async def test_stock_adjust_without_tenant_goes_straight_to_dead_letter(
+    db_session, fake_redis
+):
+    processor = FakeProcessor()
+    consumer = _make_consumer(db_session, processor, fake_redis)
+    await consumer.ensure_group()
+    await _publish(
+        fake_redis, EVENT_STOCK_ADJUST, {"sku_id": 1, "new_quantity": 5}, "sa-no-tenant"
+    )
+
+    await consumer._read_once(block_ms=1)
+
+    # Never dispatched and never retried.
+    assert processor.calls == []
+    pending = await fake_redis.xpending(STREAM_KEY, CONSUMER_GROUP)
+    assert pending["pending"] == 0
+    dead = await fake_redis.xrange(DEAD_STREAM_KEY)
+    assert len(dead) == 1
+    assert dead[0][1]["event_id"] == "sa-no-tenant"
+    assert db_session.query(SyncEvent).filter_by(dedupe_key="sa-no-tenant").first() is None
 
 
 @pytest.mark.asyncio
@@ -121,7 +274,12 @@ async def test_item_changed_is_synced_locally(db_session, fake_redis):
 
     await consumer._read_once(block_ms=1)
 
-    assert processor.calls == [("upsert_local_item", {"id": "MLB123", "title": "Item MLB123", "available_quantity": 10})]
+    assert processor.calls == [
+        (
+            "upsert_local_item",
+            {"id": "MLB123", "title": "Item MLB123", "available_quantity": 10},
+        )
+    ]
     pending = await fake_redis.xpending(STREAM_KEY, CONSUMER_GROUP)
     assert pending["pending"] == 0
     record = db_session.query(SyncEvent).filter_by(dedupe_key="itm-1").one()
@@ -129,21 +287,51 @@ async def test_item_changed_is_synced_locally(db_session, fake_redis):
 
 
 @pytest.mark.asyncio
-async def test_redelivered_event_is_skipped(db_session, fake_redis):
+async def test_item_changed_forwards_webhook_timestamp(db_session, fake_redis):
     processor = FakeProcessor()
     consumer = _make_consumer(db_session, processor, fake_redis)
     await consumer.ensure_group()
-    await _publish(fake_redis, EVENT_STOCK_ADJUST, {"sku_id": 1, "new_quantity": 3}, "sa-dup")
+    await _publish(
+        fake_redis,
+        EVENT_ITEMS_CHANGED,
+        {
+            "ml_user_id": 42,
+            "resource": "/items/MLB123",
+            "sent": "2026-11-09T12:00:00.000Z",
+        },
+        "itm-ts-1",
+    )
+
+    await consumer._read_once(block_ms=1)
+
+    from datetime import UTC, datetime
+
+    assert processor.last_event_timestamp == datetime(
+        2026, 11, 9, 12, 0, tzinfo=UTC
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_event_processed_ack(db_session, fake_redis):
+    processor = FakeProcessor()
+    consumer = _make_consumer(db_session, processor, fake_redis)
+    await consumer.ensure_group()
+    payload = {"sku_id": 1, "new_quantity": 3, "tenant_id": "tenant-1"}
+    await _publish(fake_redis, EVENT_STOCK_ADJUST, payload, "sa-dup")
 
     await consumer._read_once(block_ms=1)
     assert len(processor.calls) == 1
+    record = db_session.query(SyncEvent).filter_by(dedupe_key="sa-dup").one()
+    assert record.status == "processed"
 
     # Simulate a redelivery of the same event_id (new stream entry).
-    await _publish(fake_redis, EVENT_STOCK_ADJUST, {"sku_id": 1, "new_quantity": 3}, "sa-dup")
+    await _publish(fake_redis, EVENT_STOCK_ADJUST, payload, "sa-dup")
     await consumer._read_once(block_ms=1)
 
     # Processed only once — second delivery ACKed without dispatching.
     assert len(processor.calls) == 1
+    pending = await fake_redis.xpending(STREAM_KEY, CONSUMER_GROUP)
+    assert pending["pending"] == 0
 
 
 @pytest.mark.asyncio
@@ -158,7 +346,12 @@ async def test_failure_retries_then_dead_letters(db_session, fake_redis, monkeyp
     processor.fail = True
     consumer = _make_consumer(db_session, processor, fake_redis)
     await consumer.ensure_group()
-    await _publish(fake_redis, EVENT_STOCK_ADJUST, {"sku_id": 9, "new_quantity": 1}, "sa-fail")
+    await _publish(
+        fake_redis,
+        EVENT_STOCK_ADJUST,
+        {"sku_id": 9, "new_quantity": 1, "tenant_id": "tenant-1"},
+        "sa-fail",
+    )
 
     await consumer._read_once(block_ms=1)
     record = db_session.query(SyncEvent).filter_by(dedupe_key="sa-fail").one()
@@ -189,3 +382,49 @@ async def test_unknown_event_type_is_dropped(db_session, fake_redis):
     assert processor.calls == []
     pending = await fake_redis.xpending(STREAM_KEY, CONSUMER_GROUP)
     assert pending["pending"] == 0
+
+
+@pytest.mark.asyncio
+async def test_dead_lettered_event_can_be_replayed(db_session, fake_redis, monkeypatch):
+    from app.core import config as config_module
+
+    monkeypatch.setattr(config_module.settings, "stream_max_attempts", 1)
+    processor = FakeProcessor()
+    processor.fail = True
+    consumer = _make_consumer(db_session, processor, fake_redis)
+    await consumer.ensure_group()
+    await _publish(
+        fake_redis,
+        EVENT_STOCK_ADJUST,
+        {"sku_id": 1, "new_quantity": 5, "tenant_id": "tenant-1"},
+        "sa-replay",
+    )
+
+    await consumer._read_once(block_ms=1)
+    record = db_session.query(SyncEvent).filter_by(dedupe_key="sa-replay").one()
+    assert record.status == "failed"
+
+    # Replay: copy the dead entry back to the main stream and reset the event
+    # exactly like POST /api/v1/sync/dead-letters/replay does.
+    dead = await fake_redis.xrange(DEAD_STREAM_KEY)
+    assert len(dead) == 1
+    await fake_redis.xadd(STREAM_KEY, dead[0][1])
+    await fake_redis.xdel(DEAD_STREAM_KEY, dead[0][0])
+    record.status = "pending"
+    record.retry_count = 0
+    record.error_message = None
+    db_session.add(record)
+    db_session.commit()
+
+    processor.fail = False
+    await consumer._read_once(block_ms=1)
+
+    assert processor.calls == [
+        (
+            "stock_adjust",
+            {"sku_id": 1, "new_quantity": 5, "tenant_id": "tenant-1"},
+        )
+    ]
+    record = db_session.query(SyncEvent).filter_by(dedupe_key="sa-replay").one()
+    assert record.status == "processed"
+    assert await fake_redis.xlen(DEAD_STREAM_KEY) == 0

@@ -155,12 +155,48 @@ alembic upgrade head
 
 Nos containers, o `alembic upgrade head` roda automaticamente antes do `uvicorn` (ver `Dockerfile`).
 
+## Reset de dados de teste
+
+Durante a fase de testes, o repositório inclui um script para apagar todos os
+dados de negócio dos cinco serviços e o estado do Redis, preservando o schema e
+as migrations (`alembic_version`).
+
+> **Atenção:** o reset apaga também os usuários do `auth-service` e as
+> credenciais do Mercado Livre. Depois de executá-lo será necessário criar um
+> novo usuário e refazer o OAuth.
+
+```bash
+# Interativo (pede confirmação)
+./scripts/reset-test-data.sh
+
+# Não interativo
+./scripts/reset-test-data.sh --yes
+```
+
+O script:
+
+- para os serviços de aplicação antes de apagar os dados;
+- apaga os dados de `auth-service`, `catalog-service`, `integrations-service`,
+  `sales-service` e `sync-service`;
+- limpa os bancos `0` e `1` do Redis;
+- reinicia os serviços de aplicação ao final.
+
+Tabelas apagadas:
+
+| Banco | Tabelas |
+| --- | --- |
+| `stocksync_auth` | `"user"` |
+| `stocksync_catalog` | `platformmapping`, `sku`, `product` |
+| `stocksync_integrations` | `marketplace_items`, `marketplacecredential` |
+| `stocksync_sales` | `"order"`, `salemetric` |
+| `stocksync_sync` | `stockupdatelog`, `syncevent`, `listingssyncrun` |
+
 ## Status do projeto
 
 🚀 Em desenvolvimento ativo — sincronização de anúncios e vendas com o Mercado Livre implementada:
 
 - **Anúncios**: publicação automática a partir do programa (wizard) e pull manual completo ("Sincronizar") com auditoria em `ListingsSyncRun`
-- **Vendas**: webhook do ML → Redis Streams → `sync-service` deduz estoque (endpoint atômico no catalog) e grava a venda no `sales-service`, com dedupe, retries e dead-letter
+- **Vendas**: webhook do ML → Redis Streams → `sync-service` grava a venda no `sales-service` e movimenta estoque (endpoint atômico no catalog) apenas para pedidos pagos/aprovados, com claims idempotentes (lease/heartbeat), dedupe, retries, dead-letter e replay manual; cancelamentos devolvem só a quantidade efetivamente deduzida
 - **Estoque**: mudanças manuais e de venda passam pelo stream; o flusher em lote (3s) envia a quantidade final ao ML, colapsando múltiplas mudanças numa chamada
 - **Frontend**: página "Vendas" no menu lateral (SKU, estoque, preço, quantidade, foto, comprador, data) e botão "Sincronizar" ligado ao sync-service
 

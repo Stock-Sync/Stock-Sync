@@ -65,9 +65,14 @@ def publish_stock_adjust(
     previous_quantity: int,
     new_quantity: int,
     source: str,
-    tenant_id: str | None = None,
+    tenant_id: str,
 ) -> str | None:
-    """Notify listeners that a SKU stock level changed."""
+    """Notify listeners that a SKU stock level changed.
+
+    ``tenant_id`` is mandatory (Plan 10): the sync-service drops events without
+    it straight to the dead-letter stream, so the producer must always include
+    the tenant in the payload.
+    """
     return publish_event(
         EVENT_STOCK_ADJUST,
         {

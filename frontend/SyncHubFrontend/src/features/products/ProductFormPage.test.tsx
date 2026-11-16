@@ -30,8 +30,48 @@ vi.mock("../../lib/api/catalog-client", () => ({
       },
     ]),
     createProduct: vi.fn().mockResolvedValue({ id: 1, name: "Titulo", description: "produto rafa", created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+    createProductComposite: vi.fn().mockResolvedValue({
+      id: 1,
+      tenant_id: "test-tenant",
+      name: "Titulo",
+      description: "produto rafa",
+      pictures: [],
+      is_deleted: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      sku: {
+        id: 1,
+        tenant_id: "test-tenant",
+        product_id: 1,
+        internal_sku: "rafael",
+        price: 10,
+        stock_quantity: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    }),
     createSku: vi.fn().mockResolvedValue({ id: 1, product_id: 1, internal_sku: "rafael", price: 10, stock_quantity: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
     updateProduct: vi.fn().mockResolvedValue({ id: 1, name: "Titulo atualizado", description: "produto rafa", created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+    updateProductComposite: vi.fn().mockResolvedValue({
+      id: 1,
+      tenant_id: "test-tenant",
+      name: "Titulo atualizado",
+      description: "produto rafa",
+      pictures: [],
+      is_deleted: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      sku: {
+        id: 1,
+        tenant_id: "test-tenant",
+        product_id: 1,
+        internal_sku: "rafael",
+        price: 10,
+        stock_quantity: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    }),
     updateSku: vi.fn().mockResolvedValue({ id: 1, product_id: 1, internal_sku: "rafael", price: 10, stock_quantity: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
     deleteProduct: vi.fn().mockResolvedValue(undefined),
     deleteSku: vi.fn().mockResolvedValue(undefined),
@@ -115,7 +155,7 @@ describe("ProductFormPage — criação", () => {
     await user.type(screen.getByLabelText("Quantidade em Estoque"), "1");
     await user.click(screen.getByRole("button", { name: "Adicionar imagem" }));
 
-    vi.mocked(catalogClient.createProduct).mockRejectedValueOnce(
+    vi.mocked(catalogClient.createProductComposite).mockRejectedValueOnce(
       new ApiError("conflict", "Conflict", undefined, 409)
     );
 

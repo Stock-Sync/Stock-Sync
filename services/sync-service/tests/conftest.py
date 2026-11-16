@@ -25,7 +25,7 @@ def db_session(db_engine):
 
 
 @pytest.fixture()
-def client(db_engine):
+def client(db_engine, monkeypatch):
     def override_get_session():
         with Session(db_engine) as session:
             yield session
@@ -35,6 +35,7 @@ def client(db_engine):
 
     config_module.settings.consumer_enabled = False
     config_module.settings.flusher_enabled = False
+    monkeypatch.setattr(config_module.settings, "internal_service_secret", "test-secret")
 
     app.dependency_overrides[get_session] = override_get_session
     with TestClient(app) as test_client:

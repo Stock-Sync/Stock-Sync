@@ -2,11 +2,17 @@ import hashlib
 import hmac
 import logging
 
-from fastapi import APIRouter, Header, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.core.config import settings
-from app.core.redis import EVENT_ITEMS_CHANGED, EVENT_ORDER_CREATED, publish_event
+from app.core.redis import (
+    EVENT_ITEMS_CHANGED,
+    EVENT_ORDER_CREATED,
+    is_notification_seen,
+    mark_notification_seen,
+    publish_event,
+)
 
 router = APIRouter(prefix="/api/v1/integrations/webhooks", tags=["webhooks"])
 
@@ -19,50 +25,68 @@ ITEM_TOPICS = {"items"}
 
 
 class WebhookNotification(BaseModel):
+    """Mercado Livre notification envelope.
+
+    ML does not sign notifications, and the payload is only a change signal:
+    sync-service always refetches the authoritative resource from the ML API.
+    Most topics (including ``orders_v2`` and ``items``) omit the notification
+    id entirely, so every field except the routing ones is optional.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     user_id: int
     resource: str
     topic: str
-    received: str
-    sent: str
-    attempts: int
-    id: str
+    application_id: int | None = None
+    attempts: int | None = None
+    sent: str | None = None
+    received: str | None = None
+    # Some topics send ``id``, others ``_id``; both are optional.
+    notification_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("id", "_id"),
+    )
 
 
-def _verify_signature(raw_body: bytes, x_signature: str | None) -> bool:
-    """Validate ML's X-Signature (HMAC-SHA256 of the raw body).
+def _check_webhook_secret(provided: str | None) -> None:
+    """Validate the shared secret embedded in the callback URL.
 
-    Mercado Livre signs notifications with the webhook secret configured in the
-    app panel. When no secret is configured we accept the notification (with a
-    warning log) so local development keeps working.
+    Mercado Livre has no request signature, so the callback URL itself is the
+    shared secret. In production (``DEBUG=false``) an unconfigured secret is a
+    deployment error and is rejected instead of silently accepting anything.
     """
-    if not settings.ml_webhook_secret:
-        logger.warning("ml_webhook_signature_skipped_no_secret")
-        return True
-    if not x_signature:
-        return False
-    expected = hmac.new(
-        settings.ml_webhook_secret.encode(), raw_body, hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(expected, x_signature.lower())
+    configured = settings.ml_webhook_secret
+    if not configured:
+        if settings.debug:
+            logger.warning("ml_webhook_secret_not_configured_dev")
+            return
+        logger.error("ml_webhook_secret_not_configured")
+        raise HTTPException(status_code=503, detail="Webhook secret not configured")
+    if not provided or not hmac.compare_digest(provided, configured):
+        logger.warning("ml_webhook_invalid_secret")
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
 
-@router.post("/mercadolivre")
-async def ml_webhook(
-    request: Request,
-    x_signature: str | None = Header(None),
-):
-    """Receive Mercado Livre notifications and forward them to Redis Streams.
+def _dedupe_key(notification: WebhookNotification) -> str:
+    """Stable idempotency key for a notification.
 
-    Thin forwarder: validates the signature, maps the topic to an event type
-    and XADDs it to the ``stocksync:events`` stream. All fetching of full
-    order/item details and business processing happens in sync-service.
-    A non-2xx response here makes ML retry the notification later.
+    Prefer ML's notification id. When it is absent (orders_v2/items), fall back
+    to the resource identity: refetching the resource always yields the latest
+    state, so collapsing redeliveries for the same seller/resource is safe.
     """
+    if notification.notification_id:
+        identity = f"id:{notification.notification_id}"
+    else:
+        identity = f"{notification.topic}:{notification.user_id}:{notification.resource}"
+    digest = hashlib.sha256(identity.encode()).hexdigest()
+    return f"mlwh:{notification.topic}:{digest}"
+
+
+async def _handle_notification(request: Request, provided_secret: str | None) -> dict:
+    _check_webhook_secret(provided_secret)
+
     raw_body = await request.body()
-    if not _verify_signature(raw_body, x_signature):
-        logger.warning("ml_webhook_invalid_signature")
-        raise HTTPException(status_code=401, detail="Invalid signature")
-
     try:
         notification = WebhookNotification.model_validate_json(raw_body)
     except Exception:
@@ -75,7 +99,7 @@ async def ml_webhook(
             "user_id": notification.user_id,
             "resource": notification.resource,
             "topic": notification.topic,
-            "notification_id": notification.id,
+            "notification_id": notification.notification_id,
         },
     )
 
@@ -93,17 +117,56 @@ async def ml_webhook(
         )
         return {"status": "ignored"}
 
+    dedupe_key = _dedupe_key(notification)
+    if await is_notification_seen(dedupe_key):
+        logger.info(
+            "ml_webhook_duplicate",
+            extra={
+                "topic": notification.topic,
+                "resource": notification.resource,
+                "dedupe_key": dedupe_key,
+            },
+        )
+        return {"status": "duplicate"}
+
+    # The deterministic event id is also sync-service's SyncEvent.dedupe_key,
+    # so concurrent redeliveries that slip past the cache check are still only
+    # processed once.
     event_id = await publish_event(
         event_type,
         {
             "ml_user_id": notification.user_id,
             "resource": notification.resource,
             "topic": notification.topic,
-            "notification_id": notification.id,
+            "notification_id": notification.notification_id,
+            # Used by sync-service to discard out-of-order items_changed
+            # deliveries (Plan 9). ML does not sign notifications; this is a
+            # best-effort ordering hint, never an authentication signal.
+            "sent": notification.sent,
+            "received": notification.received,
         },
+        event_id=dedupe_key,
     )
     if event_id is None:
-        # Redis down → 500 so Mercado Livre retries the notification later.
+        # Redis down → 503 so Mercado Livre retries the notification later.
         raise HTTPException(status_code=503, detail="Event queue unavailable")
 
+    await mark_notification_seen(dedupe_key)
     return {"status": "queued", "event_id": event_id}
+
+
+@router.post("/mercadolivre")
+async def ml_webhook_without_secret(request: Request) -> dict:
+    """Legacy callback URL without the secret (allowed only in DEBUG)."""
+    return await _handle_notification(request, None)
+
+
+@router.post("/mercadolivre/{secret}")
+async def ml_webhook(request: Request, secret: str) -> dict:
+    """Receive Mercado Livre notifications and forward them to Redis Streams.
+
+    Thin forwarder: validates the shared secret, maps the topic to an event
+    type and XADDs it to the ``stocksync:events`` stream. All fetching of full
+    order/item details and business processing happens in sync-service.
+    """
+    return await _handle_notification(request, secret)

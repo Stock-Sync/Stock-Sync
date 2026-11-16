@@ -1,13 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { catalogClient, type PlatformMapping } from "../../lib/api/catalog-client";
 import {
-  catalogClient,
-  type PlatformMapping,
-  type PlatformMappingCreate,
-} from "../../lib/api/catalog-client";
-import { integrationsClient } from "../../lib/api/integrations-client";
+  integrationsClient,
+  type CreateListingPayload,
+} from "../../lib/api/integrations-client";
 import {
   mercadolibreClient,
-  type CreateMlItemRequest,
   type UpdateMlItemRequest,
 } from "../../lib/api/mercadolibre-client";
 import { queryKeys } from "../products/queries";
@@ -60,16 +58,19 @@ export function useMlItem(itemId: string | undefined) {
   });
 }
 
-/** Cria o anúncio no Mercado Livre e registra o vínculo local. */
-export function useCreateMlItem() {
+/** Publica anúncio, descrição, MarketplaceItem e PlatformMapping atomicamente. */
+export function useCreateListing() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (payload: CreateMlItemRequest) =>
-      mercadolibreClient.createMlItem(payload),
+    mutationFn: (payload: CreateListingPayload) =>
+      integrationsClient.createListing(payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.listings });
       void queryClient.invalidateQueries({ queryKey: queryKeys.products });
+      void queryClient.invalidateQueries({
+        queryKey: localMarketplaceItemsKey,
+      });
     },
   });
 }
@@ -127,16 +128,6 @@ export function usePauseMlListings() {
   });
 }
 
-/** Cria/substituí a descrição de um item (POST /items/{id}/description, v3). */
-export function useCreateMlItemDescription() {
-  return useMutation({
-    mutationFn: (input: {
-      itemId: string;
-      plainText: string;
-    }) => mercadolibreClient.createMlItemDescription(input.itemId, input.plainText),
-  });
-}
-
 /** Vínculos locais de anúncios (produto ↔ marketplace). */
 export function usePlatformMappings() {
   return useQuery({
@@ -149,21 +140,8 @@ export function usePlatformMappings() {
 export function useLocalMarketplaceItems() {
   return useQuery({
     queryKey: localMarketplaceItemsKey,
-    queryFn: () => integrationsClient.listLocalMercadoLivreItems(),
-  });
-}
-
-/** Registra o vínculo local de um anúncio já publicado. */
-export function useCreatePlatformMapping() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (payload: PlatformMappingCreate) =>
-      catalogClient.createPlatformMapping(payload),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.listings });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.products });
-    },
+    // Mantém o volume anterior da listagem (o endpoint agora pagina, padrão 20).
+    queryFn: () => integrationsClient.listLocalMercadoLivreItems({ limit: 100 }),
   });
 }
 

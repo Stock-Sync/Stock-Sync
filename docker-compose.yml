@@ -36,16 +36,17 @@ services:
     environment:
       APP_NAME: auth-service
       APP_VERSION: 0.1.0
-      DEBUG: "true"
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_auth
       REDIS_URL: redis://redis:6379/1
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
       JWT_ALGORITHM: HS256
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: 15
       JWT_REFRESH_TOKEN_EXPIRE_DAYS: 7
-      COOKIE_DOMAIN: localhost
-      COOKIE_SECURE: "false"
-      COOKIE_SAMESITE: lax
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-localhost}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
     depends_on:
       postgres:
@@ -61,10 +62,13 @@ services:
     environment:
       APP_NAME: catalog-service
       APP_VERSION: 0.1.0
-      DEBUG: "true"
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_catalog
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
+      INTEGRATIONS_SERVICE_URL: http://integrations-service:8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,7 +83,8 @@ services:
     environment:
       APP_NAME: sync-service
       APP_VERSION: 0.1.0
-      DEBUG: "true"
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_sync
       REDIS_URL: redis://redis:6379/0
       CATALOG_SERVICE_URL: http://catalog-service:8000
@@ -88,6 +93,7 @@ services:
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
       JWT_ALGORITHM: HS256
+      SYNC_SAFETY_THRESHOLD_RATIO: ${SYNC_SAFETY_THRESHOLD_RATIO:-0.10}
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,7 +108,8 @@ services:
     environment:
       APP_NAME: integrations-service
       APP_VERSION: 0.1.0
-      DEBUG: "true"
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_integrations
       REDIS_URL: redis://redis:6379/0
       MERCADO_LIVRE_APP_ID: ${MERCADO_LIVRE_APP_ID:-}
@@ -111,7 +118,13 @@ services:
       SHOPEE_PARTNER_KEY: ${SHOPEE_PARTNER_KEY:-}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8003}
       ML_WEBHOOK_SECRET: ${ML_WEBHOOK_SECRET:-}
+      ML_WEBHOOK_DEDUP_TTL_SECONDS: ${ML_WEBHOOK_DEDUP_TTL_SECONDS:-3600}
+      OAUTH_STATE_TTL_SECONDS: ${OAUTH_STATE_TTL_SECONDS:-600}
+      ML_REFRESH_LOCK_TTL_SECONDS: ${ML_REFRESH_LOCK_TTL_SECONDS:-15}
+      ML_REFRESH_LOCK_TIMEOUT_SECONDS: ${ML_REFRESH_LOCK_TIMEOUT_SECONDS:-10}
+      ML_REFRESH_BUFFER_SECONDS: ${ML_REFRESH_BUFFER_SECONDS:-600}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
+      CATALOG_SERVICE_URL: http://catalog-service:8000
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
       JWT_ALGORITHM: HS256
@@ -129,9 +142,12 @@ services:
     environment:
       APP_NAME: sales-service
       APP_VERSION: 0.1.0
-      DEBUG: "true"
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
       DATABASE_URL: postgresql+psycopg://postgres:postgres@postgres:5432/stocksync_sales
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-your-internal-service-secret-change-in-production}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-your-super-secret-jwt-key-change-in-production}
+      JWT_ALGORITHM: HS256
     depends_on:
       postgres:
         condition: service_healthy

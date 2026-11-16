@@ -2,13 +2,13 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from jose import JWTError, jwt
+from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session, select
 
+from app.api.deps import get_tenant_id, require_internal_secret
 from app.core.config import settings
 from app.db.session import get_session
-from app.models import ListingsSyncRun
+from app.models import ListingsSyncRun, SyncEvent
 from app.services.listings_sync import ListingsSyncService
 
 logger = logging.getLogger(__name__)
@@ -16,51 +16,69 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/sync", tags=["sync"])
 
 
-def get_tenant_id(request: Request) -> str:
-    """Resolve the tenant from the auth-service JWT cookie (same contract as
-    the other services' public endpoints)."""
-    access_token = request.cookies.get("access_token")
-    if access_token:
-        try:
-            payload = jwt.decode(
-                access_token,
-                settings.jwt_secret_key,
-                algorithms=[settings.jwt_algorithm],
-            )
-            tenant_id = payload.get("tenant_id")
-            if tenant_id:
-                return tenant_id
-        except JWTError:
-            pass
-    tenant_id = request.cookies.get("tenant_id") or request.headers.get("X-Tenant-ID")
-    if tenant_id:
-        return tenant_id
-    raise HTTPException(status_code=401, detail="Tenant ID not found")
-
-
 @router.post("/listings/pull")
 async def pull_listings(
-    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
     session: Session = Depends(get_session),
 ):
     """Full pull of ML listings → local items + platform mappings."""
-    tenant_id = get_tenant_id(request)
     service = ListingsSyncService(session, tenant_id)
     result = await service.pull()
     logger.info("listings_pull_completed", extra={"tenant_id": tenant_id, **result})
     return result
 
 
+@router.post("/dead-letters/replay")
+async def replay_dead_letters(
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    _: None = Depends(require_internal_secret),
+    session: Session = Depends(get_session),
+):
+    """Move dead-letter entries back to the main stream for another attempt.
+
+    Operational, global route guarded by ``X-Internal-Secret``. The matching
+    ``SyncEvent`` is reset to ``pending`` with a clean retry counter. Replay is
+    idempotent from the consumer's point of view: if an event had already been
+    processed it is ACKed without dispatching again.
+    """
+    from app.core.redis import get_redis
+    from app.streams.consts import DEAD_STREAM_KEY, STREAM_KEY
+
+    redis = get_redis()
+    batch = limit or settings.dead_letter_replay_limit
+
+    entries = await redis.xrange(DEAD_STREAM_KEY, count=batch)
+    replayed = 0
+    for entry_id, fields in entries:
+        dedupe_key = fields.get("event_id")
+        if dedupe_key:
+            record = session.exec(
+                select(SyncEvent).where(SyncEvent.dedupe_key == dedupe_key)
+            ).first()
+            if record is not None:
+                record.status = "pending"
+                record.retry_count = 0
+                record.error_message = None
+                record.processed_at = None
+                session.add(record)
+                session.commit()
+
+        await redis.xadd(STREAM_KEY, fields)
+        await redis.xdel(DEAD_STREAM_KEY, entry_id)
+        replayed += 1
+
+    logger.info("dead_letters_replayed", extra={"replayed": replayed, "limit": batch})
+    return {"replayed": replayed}
+
+
 @router.get("/status")
 async def sync_status(
-    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
     session: Session = Depends(get_session),
 ):
     """Status of the sync pipeline (last pull, event backlog, dead letters)."""
     from app.core.redis import get_redis
     from app.streams.consts import DEAD_STREAM_KEY, PENDING_STOCK_KEY, STREAM_KEY
-
-    tenant_id = get_tenant_id(request)
 
     last_run = session.exec(
         select(ListingsSyncRun)
@@ -84,6 +102,8 @@ async def sync_status(
                 "items_found": last_run.items_found,
                 "items_upserted": last_run.items_upserted,
                 "mappings_created": last_run.mappings_created,
+                "items_removed": len(last_run.items_removed or []),
+                "items_removed_ids": last_run.items_removed or [],
                 "started_at": last_run.started_at.isoformat(),
                 "finished_at": (
                     last_run.finished_at.isoformat() if last_run.finished_at else None

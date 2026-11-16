@@ -14,25 +14,52 @@ export interface MarketplaceCredential {
   updated_at: string;
 }
 
-export interface CreateItemRequest {
-  title: string;
-  category_id: string;
-  price: number;
-  currency_id?: string;
-  available_quantity: number;
-  buying_mode?: string;
-  listing_type_id?: string;
-  condition?: string;
-  description?: string;
-  pictures?: Array<{ source: string }>;
-  attributes?: Array<{ id: string; value_name: string }>;
+export interface CreateListingAttribute {
+  id: string;
+  value_name?: string;
+  value_id?: string;
+  value_struct?: { number: number; unit?: string } | null;
 }
 
-export interface CreateItemResponse {
+export interface CreateListingPayload {
+  title?: string | null;
+  category_id: string;
+  family_name?: string | null;
+  listing_type_id?: "gold_pro" | "gold_special";
+  condition?: "new" | "used";
+  currency_id?: "BRL";
+  buying_mode?: "buy_it_now" | "auction" | "classified";
+  price: number;
+  available_quantity: number;
+  pictures: Array<{ source: string }>;
+  attributes?: CreateListingAttribute[];
+  sale_terms?: Array<{ id: string; value_name?: string; value_id?: string }>;
+  description?: string | null;
+  /** SKU interno que originou o anúncio. */
+  sku_id: number;
+  product_id?: number | null;
+  /** SKU interno legível usado como platform_sku no vínculo local. */
+  platform_sku?: string | null;
+}
+
+export interface CreatedListingItem {
   id: string;
-  title: string;
-  permalink: string;
-  status: string;
+  item_id?: string;
+  title?: string;
+  available_quantity?: number;
+  price?: number;
+  status?: string | null;
+  permalink?: string | null;
+  sku_id?: number | null;
+  product_id?: number | null;
+  [key: string]: unknown;
+}
+
+export interface CreateListingResponse {
+  item: CreatedListingItem;
+  mapping: Record<string, unknown> | null;
+  /** true quando a chamada devolveu um anúncio já publicado (retry idempotente). */
+  existing: boolean;
 }
 
 export interface ConnectResponse {
@@ -66,11 +93,26 @@ export interface LocalMarketplaceItem {
   price: number;
   available_quantity: number;
   status: string | null;
+  /** Espelho do ciclo de vida no ML (active ⇒ true). */
+  is_active?: boolean;
   thumbnail: string | null;
   permalink: string | null;
   sku_id: number | null;
   product_id: number | null;
+  /** true quando o anúncio possui vínculo local (sku_id). */
+  is_mapped?: boolean;
   updated_at: string | null;
+  /** Soft-deleted listings are hidden by the API; kept for defensive checks. */
+  is_deleted?: boolean;
+}
+
+/** Contrato padrão de paginação de `/items/local` (Plan 9). */
+export interface PaginatedLocalMarketplaceItems {
+  items: LocalMarketplaceItem[];
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
 }
 
 const ML_BASE = "/api/v1/integrations/mercadolivre";
@@ -91,13 +133,33 @@ export const integrationsClient = {
   },
 
   // Produtos
-  async createMercadoLivreItem(payload: CreateItemRequest): Promise<CreateItemResponse> {
-    return httpClient.post<CreateItemResponse>("/api/v1/integrations/mercadolivre/items", payload);
+  /** Publica anúncio, descrição e vínculos locais em uma única operação. */
+  async createListing(payload: CreateListingPayload): Promise<CreateListingResponse> {
+    return httpClient.post<CreateListingResponse>(`${ML_BASE}/listings`, payload);
   },
 
-  /** Anúncios importados/sincronizados localmente (MarkeplaceItem). */
-  async listLocalMercadoLivreItems(): Promise<LocalMarketplaceItem[]> {
-    return httpClient.get<LocalMarketplaceItem[]>(`${ML_BASE}/items/local`);
+  /**
+   * Anúncios importados/sincronizados localmente (MarketplaceItem).
+   *
+   * O endpoint devolve o contrato paginado (items/page/limit/total/total_pages);
+   * a UI atual consome a primeira página como lista simples.
+   */
+  async listLocalMercadoLivreItems(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    unmappedOnly?: boolean;
+  }): Promise<LocalMarketplaceItem[]> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set("page", String(params.page));
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.search) query.set("search", params.search);
+    if (params?.unmappedOnly) query.set("unmapped_only", "true");
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const page = await httpClient.get<PaginatedLocalMarketplaceItems>(
+      `${ML_BASE}/items/local${suffix}`
+    );
+    return page.items;
   },
 
   // Webhooks (called by Mercado Livre, not typically from frontend)

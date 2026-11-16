@@ -1,17 +1,29 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import case, update
 from sqlmodel import Session, select
 
-from app.api.deps import get_tenant_id
+from app.api.deps import get_internal_tenant_id, get_tenant_id
 from app.core.errors import NotFoundError
 from app.core.redis import publish_stock_adjust
 from app.db.session import get_session
 from app.models import SKU, PlatformMapping, Product
-from app.schemas import SKUAdjust, SKUAdjustRead, SKUCreate, SKURead, SKUUpdate
+from app.schemas import (
+    SKUAdjust,
+    SKUAdjustRead,
+    SKUCreate,
+    SKULookupRead,
+    SKURead,
+    SKUUpdate,
+)
+from app.services.sku_rules import (
+    ensure_internal_sku_editable,
+    ensure_sku_uniqueness,
+)
 
 router = APIRouter()
+# Mounted by ``app.main`` under ``/api/v1/internal/skus``.
+internal_router = APIRouter()
 
 
 def _get_sku_or_404(
@@ -49,6 +61,12 @@ def create_sku(
     product = session.get(Product, payload.product_id)
     if product is None or product.tenant_id != tenant_id or product.is_deleted:
         raise NotFoundError("Product")
+    ensure_sku_uniqueness(
+        session,
+        tenant_id=tenant_id,
+        product_id=product.id,
+        internal_sku=payload.internal_sku,
+    )
     sku = SKU(**payload.model_dump(), tenant_id=tenant_id)
     session.add(sku)
     session.commit()
@@ -84,13 +102,38 @@ def update_sku(
 ) -> SKU:
     sku = _get_sku_or_404(session, sku_id, tenant_id)
     data = payload.model_dump(exclude_unset=True)
+    target_product_id = sku.product_id
     if "product_id" in data and data["product_id"] is not None:
         product = session.get(Product, data["product_id"])
         if product is None or product.tenant_id != tenant_id or product.is_deleted:
             raise NotFoundError("Product")
+        target_product_id = product.id
+
+    new_internal_sku = data.get("internal_sku")
+    ensure_internal_sku_editable(
+        session,
+        sku_id=sku.id,
+        tenant_id=tenant_id,
+        current_internal_sku=sku.internal_sku,
+        new_internal_sku=new_internal_sku,
+    )
+    ensure_sku_uniqueness(
+        session,
+        tenant_id=tenant_id,
+        product_id=target_product_id,
+        internal_sku=(
+            new_internal_sku
+            if new_internal_sku is not None
+            else sku.internal_sku
+        ),
+        exclude_sku_id=sku.id,
+    )
+
     previous_quantity = sku.stock_quantity
     for key, value in data.items():
         setattr(sku, key, value)
+    # Plan 10: keep updated_at accurate on every catalog mutation.
+    sku.updated_at = datetime.now(UTC)
     session.add(sku)
     session.commit()
     session.refresh(sku)
@@ -101,6 +144,7 @@ def update_sku(
             previous_quantity,
             sku.stock_quantity,
             "catalog_update",
+            tenant_id=tenant_id,
         )
     return sku
 
@@ -114,27 +158,38 @@ def adjust_sku_stock(
 ) -> SKUAdjustRead:
     """Atomically increase/decrease stock (clamped at 0) and emit a stream event.
 
-    The UPDATE computes the new quantity in SQL so concurrent adjustments
-    never lose updates, and the stock_adjust event lets sync-service push the
-    new quantity to every linked marketplace listing.
+    The row is read with ``SELECT ... FOR UPDATE`` so ``previous_quantity``,
+    ``new_quantity`` and ``clamped`` describe the same serialized transition.
+    Computing the new value in Python (instead of reading it before an atomic
+    UPDATE) is what makes the response safe to use for reversal: a concurrent
+    adjustment must wait for this transaction before it can read the row, so
+    it sees the quantity written here and reports the correct ``deducted``
+    amount.
+
+    The ``stock_adjust`` event lets sync-service push the new quantity to every
+    linked marketplace listing.
     """
-    sku = _get_sku_or_404(session, sku_id, tenant_id)
+    statement = (
+        select(SKU)
+        .where(SKU.id == sku_id, SKU.tenant_id == tenant_id)
+        .with_for_update()
+        # Ignore any stale copy already present in the session's identity map.
+        .execution_options(populate_existing=True)
+    )
+    sku = session.exec(statement).first()
+    if sku is None or sku.is_deleted:
+        raise NotFoundError("SKU")
 
     previous_quantity = sku.stock_quantity
-    new_quantity_expr = case(
-        (SKU.stock_quantity + payload.delta < 0, 0),
-        else_=SKU.stock_quantity + payload.delta,
-    )
-    result = session.execute(
-        update(SKU)
-        .where(SKU.id == sku_id)
-        .values(stock_quantity=new_quantity_expr, updated_at=datetime.now(UTC))
-        .returning(SKU.stock_quantity, SKU.internal_sku)
-    )
-    new_quantity, internal_sku = result.one()
+    internal_sku = sku.internal_sku
+    new_quantity = max(0, previous_quantity + payload.delta)
+    clamped = previous_quantity + payload.delta < 0
+
+    sku.stock_quantity = new_quantity
+    sku.updated_at = datetime.now(UTC)
+    session.add(sku)
     session.commit()
 
-    clamped = previous_quantity + payload.delta < 0
     publish_stock_adjust(
         sku_id,
         internal_sku,
@@ -181,3 +236,50 @@ def delete_sku(
         session.add(mapping)
 
     session.commit()
+
+
+# =============================================================================
+# Internal (service-to-service) endpoints
+# =============================================================================
+
+
+def _sku_lookup_payload(sku: SKU, product: Product | None) -> SKULookupRead:
+    product_is_deleted = product is None or product.is_deleted
+    return SKULookupRead(
+        id=sku.id,
+        tenant_id=sku.tenant_id,
+        product_id=sku.product_id,
+        internal_sku=sku.internal_sku,
+        price=sku.price,
+        stock_quantity=sku.stock_quantity,
+        is_deleted=sku.is_deleted,
+        created_at=sku.created_at,
+        updated_at=sku.updated_at,
+        product_is_deleted=product_is_deleted,
+        mappable=not sku.is_deleted and not product_is_deleted,
+    )
+
+
+@internal_router.get("/lookup", response_model=SKULookupRead)
+def lookup_internal_sku(
+    internal_sku: str,
+    session: Session = Depends(get_session),
+    tenant_id: str = Depends(get_internal_tenant_id),
+) -> SKULookupRead:
+    """Resolve a platform SKU to an internal SKU, including deletion state.
+
+    Listing auto-matching calls this endpoint and only creates a mapping when
+    ``mappable`` is true, i.e. both the SKU and its product are active.
+    """
+    sku = session.exec(
+        select(SKU)
+        .where(
+            SKU.tenant_id == tenant_id,
+            SKU.internal_sku == internal_sku,
+        )
+        .order_by(SKU.id.desc())
+    ).first()
+    if sku is None:
+        raise NotFoundError("SKU")
+    product = session.get(Product, sku.product_id)
+    return _sku_lookup_payload(sku, product)

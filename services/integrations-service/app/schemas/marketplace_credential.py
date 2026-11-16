@@ -189,8 +189,13 @@ StatusStr = Annotated[str, StringConstraints(pattern=r"^(active|paused|closed)$"
 ML_TITLE_MAX_LENGTH = 60
 
 
-class ItemCreateRequest(SQLModel):
-    """Payload for creating a listing via the Mercado Livre items endpoint."""
+class CreateListingRequest(SQLModel):
+    """Payload for the orchestrated ``POST /listings`` endpoint.
+
+    The endpoint rejects variations (``children``/``variations``). They are
+    declared here only so the API can return an explicit 422 instead of a
+    generic validation error.
+    """
 
     title: str | None = SQLModelField(default=None, max_length=ML_TITLE_MAX_LENGTH)
     category_id: str = SQLModelField(min_length=1)  # must be a leaf category
@@ -204,11 +209,22 @@ class ItemCreateRequest(SQLModel):
     pictures: List[ItemPicture] = SQLModelField(min_length=1, max_length=12)
     attributes: List[ItemAttribute] = SQLModelField(default_factory=list)
     sale_terms: List[ItemSaleTerm] | None = None
-    description: str | None = None  # sent as a separate POST /items/{id}/description call
-    children: List[ItemChild] = SQLModelField(default_factory=list)  # optional variations
-    # Local catalog link (products-service) so the listing hub can join back
-    sku_id: int | None = None
+    description: str | None = None
+    # Local catalog link (catalog-service) so the listing hub can join back.
+    sku_id: int
     product_id: int | None = None
+    # Human-readable internal SKU used as platform_sku in the mapping.
+    platform_sku: str | None = SQLModelField(default=None, max_length=100)
+    children: List[ItemChild] | None = None
+    variations: List[dict[str, Any]] | None = None
+
+
+class CreateListingResponse(SQLModel):
+    """Result of an orchestrated listing creation (or an idempotent replay)."""
+
+    item: dict[str, Any]
+    mapping: dict[str, Any] | None = None
+    existing: bool = False
 
 
 class ItemUpdateRequest(SQLModel):
@@ -226,6 +242,7 @@ class ItemUpdateRequest(SQLModel):
     attributes: List[ItemAttribute] | None = None
     sale_terms: List[ItemSaleTerm] | None = None
     children: List[ItemChild] | None = None
+    variations: List[dict[str, Any]] | None = None
 
 
 class ItemDescriptionRequest(SQLModel):

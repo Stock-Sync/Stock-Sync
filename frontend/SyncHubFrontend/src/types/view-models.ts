@@ -18,6 +18,8 @@ export interface ProductView {
   stockQuantity: number;
   pictures: string[];
   updatedAt: string;
+  hasActiveListing: boolean;
+  isDescriptionTruncated: boolean;
 }
 
 export function toProductView(product: Product, sku: SKU): ProductView {
@@ -32,6 +34,8 @@ export function toProductView(product: Product, sku: SKU): ProductView {
     stockQuantity: sku.stock_quantity,
     pictures: product.pictures ?? [],
     updatedAt: sku.updated_at,
+    hasActiveListing: product.has_active_listing ?? false,
+    isDescriptionTruncated: product.is_description_truncated ?? false,
   };
 }
 

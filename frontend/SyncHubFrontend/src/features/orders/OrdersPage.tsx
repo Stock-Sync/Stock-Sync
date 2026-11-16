@@ -53,9 +53,16 @@ function ProductCell({ order }: { order: Order }) {
         </span>
       )}
       <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-800">
-          {order.item_title ?? "Anúncio"}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-semibold text-slate-800">
+            {order.item_title ?? "Anúncio"}
+          </p>
+          {order.is_variation && (
+            <Badge tone="warning" className="shrink-0">
+              Variação
+            </Badge>
+          )}
+        </div>
         <p className="font-mono text-xs text-slate-500">{order.marketplace_order_id}</p>
       </div>
     </div>

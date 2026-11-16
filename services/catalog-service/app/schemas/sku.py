@@ -47,3 +47,15 @@ class SKURead(SKUBase):
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
+
+
+class SKULookupRead(SKURead):
+    """Internal lookup result used by listing auto-matching.
+
+    ``mappable`` is the single flag callers must check: it is false when the
+    SKU or its product was soft-deleted. The individual flags are kept so the
+    caller can log why a listing stayed unmapped.
+    """
+
+    product_is_deleted: bool
+    mappable: bool

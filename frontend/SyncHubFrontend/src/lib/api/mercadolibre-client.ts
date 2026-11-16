@@ -63,29 +63,6 @@ export interface MlItemResponse {
   _cloudinary_urls?: string[];
 }
 
-/** Payload para criação de item (POST /items). */
-export interface CreateMlItemRequest {
-  /** @deprecated Use family_name. Mercado Livre v3 only accepts family_name. 
-   *  Kept for backwards compatibility - backend may map title → family_name. */
-  title?: string; 
-  category_id: string; // deve ser nó folha
-  family_name: string;
-  listing_type_id: "gold_pro" | "gold_special";
-  condition: "new" | "used";
-  currency_id: "BRL";
-  buying_mode?: "buy_it_now" | "auction" | "classified";
-  price: number;
-  available_quantity: number;
-  pictures: Array<{ source: string }>;
-  attributes: Array<{ id: string; value_name?: string; value_id?: string; value_struct?: { number: number; unit?: string } | null }>;
-  sale_terms?: Array<{ id: string; value_name?: string; value_id?: string }>;
-  /** Enviada em chamada separada (POST /items/{id}/description) pelo proxy. */
-  description?: string;
-  /** Vínculo com o catálogo interno (products-service). */
-  sku_id?: number;
-  product_id?: number;
-}
-
 /** Payload para atualização de item existente (apenas campos editáveis).
  *  `title`/`family_name` e demais campos imutáveis não são enviados: o modelo
  *  User Products v3 do Mercado Livre os rejeita em `PUT /items`. */
@@ -130,13 +107,6 @@ export const mercadolibreClient = {
     );
   },
 
-  /** Cria o anúncio no Mercado Livre (POST /items) e retorna o ID gerado (ex.: MLB12345678). */
-  async createMlItem(
-    payload: CreateMlItemRequest
-  ): Promise<MlItemResponse> {
-    return httpClient.post<MlItemResponse>(`${ML_BASE}/items`, payload);
-  },
-
   /** Atualiza um anúncio existente (PUT /items/{id}). */
   async updateMlItem(
     itemId: string,
@@ -151,16 +121,5 @@ export const mercadolibreClient = {
   /** Detalhe de um item publicado (GET /items/{id}). */
   async getMlItem(itemId: string): Promise<MlItemResponse> {
     return httpClient.get<MlItemResponse>(`${ML_BASE}/items/${itemId}`);
-  },
-
-  /** Cria/substituí a descrição do anúncio (POST /items/{id}/description, v3). */
-  async createMlItemDescription(
-    itemId: string,
-    plainText: string
-  ): Promise<{ message?: string }> {
-    return httpClient.post<{ message?: string }>(
-      `${ML_BASE}/items/${itemId}/description`,
-      { plain_text: plainText }
-    );
   },
 };

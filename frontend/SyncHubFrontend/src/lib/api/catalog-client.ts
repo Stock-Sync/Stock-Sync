@@ -46,32 +46,50 @@ export interface SKUUpdate {
   stock_quantity?: number;
 }
 
-/** Dados para criação de um anúncio local (vínculo produto ↔ marketplace). */
-export interface PlatformMappingCreate {
-  sku_id: number;
-  platform: "mercado_livre" | "shopee";
-  platform_sku: string;
-  platform_product_id?: string | null;
-  is_active?: boolean;
+/**
+ * DTOs for Plan 11 composite Product+SKU endpoints.
+ *
+ * Note: ``category_id`` is NOT part of the catalog Product model; it's
+ * managed at the marketplace listing level (Plan 12). Included here only
+ * for schema completeness because the original plan spec references it.
+ */
+export interface ProductCompositeCreate {
+  name: string;
+  description?: string;
+  // category_id: string | null = null; // not stored in catalog Product
+  internal_sku: string;
+  price: number;
+  stock_quantity: number;
+  pictures?: string[];
 }
 
-export interface PlatformMapping {
+export interface ProductCompositeUpdate {
+  name?: string;
+  description?: string;
+  // category_id?: string | null;
+  internal_sku?: string;
+  price?: number;
+  stock_quantity?: number;
+  pictures?: string[];
+}
+
+export interface ProductCompositeRead {
   id: number;
   tenant_id: string;
-  sku_id: number;
-  platform: "mercado_livre" | "shopee";
-  platform_sku: string;
-  platform_product_id: string | null;
-  platform_variant_id: string | null;
-  is_active: boolean;
+  name: string;
+  description?: string;
+  // category_id?: string | null;
+  pictures?: string[];
+  is_deleted: boolean;
   created_at: string;
   updated_at: string;
+  sku: SKU;
 }
 
 const CATALOG_BASE = "/api/v1";
 
 export const catalogClient = {
-  // Products
+  // Existing endpoints
   async listProducts(): Promise<Product[]> {
     return httpClient.get<Product[]>(`${CATALOG_BASE}/products`);
   },
@@ -86,6 +104,28 @@ export const catalogClient = {
 
   async deleteProduct(id: number): Promise<void> {
     return httpClient.delete<void>(`${CATALOG_BASE}/products/${id}`);
+  },
+
+  /**
+   * Plan 11: atomic creation of a Product and its single SKU.
+   *
+   * Unlike the legacy ``/products`` + ``/skus`` pair, this endpoint ensures
+   * both rows are written in one transaction so the UI can treat it as a
+   * single operation (create product + create sku). If anything fails, the
+   * product is rolled back.
+   */
+  async createProductComposite(payload: ProductCompositeCreate): Promise<ProductCompositeRead> {
+    return httpClient.post<ProductCompositeRead>(`${CATALOG_BASE}/products/composite`, payload);
+  },
+
+  async updateProductComposite(id: number, payload: ProductCompositeUpdate): Promise<ProductCompositeRead> {
+    return httpClient.put<ProductCompositeRead>(`${CATALOG_BASE}/products/${id}/composite`, payload);
+  },
+
+  async unbindProductListings(
+    id: number
+  ): Promise<{ unbound: number; platform_product_ids: string[] }> {
+    return httpClient.post<{ unbound: number; platform_product_ids: string[] }>(`${CATALOG_BASE}/products/${id}/unbind-listings`, {});
   },
 
   // SKUs
@@ -117,13 +157,13 @@ export const catalogClient = {
 
   // Platform Mappings (Listings) - vínculos locais produto ↔ marketplace
   async listPlatformMappings(): Promise<PlatformMapping[]> {
-    return httpClient.get<PlatformMapping[]>(`${CATALOG_BASE}/platform-mappings`);
+    return httpClient.get<PlatformMapping[]>(
+      `${CATALOG_BASE}/platform-mappings`
+    );
   },
 
   async getPlatformMapping(id: number): Promise<PlatformMapping> {
-    return httpClient.get<PlatformMapping>(
-      `${CATALOG_BASE}/platform-mappings/${id}`
-    );
+    return httpClient.get<PlatformMapping>(`${CATALOG_BASE}/platform-mappings/${id}`);
   },
 
   async createPlatformMapping(
@@ -136,8 +176,6 @@ export const catalogClient = {
   },
 
   async deletePlatformMapping(id: number): Promise<void> {
-    return httpClient.delete<void>(
-      `${CATALOG_BASE}/platform-mappings/${id}`
-    );
+    return httpClient.delete<void>(`${CATALOG_BASE}/platform-mappings/${id}`);
   },
 };

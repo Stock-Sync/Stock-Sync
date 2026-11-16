@@ -48,6 +48,8 @@ class MarketplaceItem(SQLModel, table=True):
     price: float = Field(ge=0)  # Numeric(12,2) in DB
     available_quantity: int = Field(default=0, ge=0)
     status: str | None = Field(default=None, max_length=30)
+    # Mirrors the ML lifecycle: active -> True, paused/closed -> False.
+    is_active: bool = Field(default=True, index=True, nullable=False)
     thumbnail: str | None = Field(default=None, max_length=500)
     permalink: str | None = Field(default=None, max_length=500)
     family_name: str | None = Field(default=None, max_length=255)
@@ -69,3 +71,6 @@ class MarketplaceItem(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), nullable=False)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), sa_column_kwargs={"onupdate": lambda: datetime.now(UTC)}, nullable=False)
     last_synced_at: datetime | None = Field(default=None)
+    # Soft delete: the listing vanished from Mercado Livre. The row is kept so
+    # past orders/audit still resolve, but it is hidden from the listings UI.
+    is_deleted: bool = Field(default=False, index=True, nullable=False)

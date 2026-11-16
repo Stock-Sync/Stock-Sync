@@ -40,9 +40,7 @@ import { mercadolibreClient } from "../../lib/api/mercadolibre-client";
 import {
   useCategoryAttributes,
   useCategoryDetail,
-  useCreateMlItem,
-  useCreateMlItemDescription,
-  useCreatePlatformMapping,
+  useCreateListing,
   useSiteCategories,
   useUpdateMlItem,
 } from "./queries";
@@ -1159,7 +1157,7 @@ function ReviewStep() {
       <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-700">
         {isEdit
           ? "As alterações serão enviadas ao Mercado Livre (PUT /items) e a descrição será atualizada se preenchida."
-          : "Ao confirmar, o anúncio será criado no Mercado Livre (POST /items), a descrição será enviada (POST /items/{id}/description) e o vínculo será salvo no catálogo local."}
+          : "Ao confirmar, o anúncio, a descrição e os vínculos locais serão criados em uma única operação compensável (POST /listings)."}
       </div>
     </section>
   );
@@ -1221,9 +1219,7 @@ export function ListingWizardPage() {
   const { data: categoryDetail, isPending: categoryDetailLoading } =
     useCategoryDetail(expandedNode?.id);
 
-  const createMlItem = useCreateMlItem();
-  const createMlItemDescription = useCreateMlItemDescription();
-  const createPlatformMapping = useCreatePlatformMapping();
+  const createListing = useCreateListing();
   const updateMlItem = useUpdateMlItem();
 
   const editInitialized = useRef(false);
@@ -1546,17 +1542,13 @@ export function ListingWizardPage() {
               }
             : {}),
           attributes,
+          // The backend updates the description through its dedicated ML
+          // endpoint inside the same PUT request.
+          ...(data.description.trim()
+            ? { description: data.description }
+            : {}),
         };
-        // 1. Updates the editable fields (price, stock, attributes, new photos).
         await updateMlItem.mutateAsync({ itemId: mlItemId, payload });
-
-        // 2. Description lives outside PUT /items and is updated separately.
-        if (data.description.trim()) {
-          await createMlItemDescription.mutateAsync({
-            itemId: mlItemId,
-            plainText: data.description,
-          });
-        }
 
         notify({
           tone: "success",
@@ -1567,7 +1559,8 @@ export function ListingWizardPage() {
         if (!data.product) {
           throw new Error("Produto base não selecionado.");
         }
-        const item = await createMlItem.mutateAsync({
+        const result = await createListing.mutateAsync({
+          title: data.title,
           family_name: data.title,
           category_id: data.category!.category_id,
           listing_type_id: data.listingTypeId,
@@ -1578,29 +1571,16 @@ export function ListingWizardPage() {
           available_quantity: quantity,
           pictures: data.pictures.map((p) => ({ source: p.source })),
           attributes,
+          description: data.description.trim() || null,
           sku_id: data.product.skuId,
           product_id: data.product.id,
-        });
-
-        if (data.description.trim() && item.id) {
-          await createMlItemDescription.mutateAsync({
-            itemId: item.id,
-            plainText: data.description,
-          });
-        }
-
-        await createPlatformMapping.mutateAsync({
-          sku_id: data.product.skuId,
-          platform: "mercado_livre",
           platform_sku: data.product.sku,
-          platform_product_id: item.id,
-          is_active: true,
         });
 
         notify({
           tone: "success",
-          title: "Anúncio publicado",
-          description: `${data.title} (${item.id})`,
+          title: result.existing ? "Anúncio já publicado" : "Anúncio publicado",
+          description: `${data.title} (${result.item.id})`,
         });
       }
       navigate(paths.listings);

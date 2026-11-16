@@ -32,8 +32,28 @@ from app.streams.consts import (
     STREAM_KEY,
 )
 from redis.exceptions import ResponseError
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import select
 
 logger = logging.getLogger(__name__)
+
+
+def _event_timestamp(payload: dict) -> datetime | None:
+    """Best-effort parse of the ML notification timestamp.
+
+    ML sends ``sent``/``received`` as ISO-8601 strings. They are only an
+    ordering hint (not signed), so malformed values are ignored.
+    """
+    raw = payload.get("sent") or payload.get("received")
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 class EventConsumer:
@@ -121,6 +141,22 @@ class EventConsumer:
             await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, entry_id)
             return
 
+        # Plan 10: tenant_id is mandatory in stock events. A missing tenant is
+        # not retryable (the producer will never add it later), so the message
+        # goes straight to the dead-letter stream instead of poisoning retries.
+        if event_type == EVENT_STOCK_ADJUST and not payload.get("tenant_id"):
+            logger.critical(
+                "stock_adjust_missing_tenant",
+                extra={
+                    "entry_id": entry_id,
+                    "event_id": dedupe_key,
+                    "payload": payload,
+                },
+            )
+            await self.redis.xadd(DEAD_STREAM_KEY, dict(fields), maxlen=1000)
+            await self.redis.xack(STREAM_KEY, CONSUMER_GROUP, entry_id)
+            return
+
         record = self._get_or_create_event(event_type, dedupe_key, payload)
         if record.status == "processed":
             # Already handled (redelivery) — just acknowledge.
@@ -186,6 +222,8 @@ class EventConsumer:
 
         Fetches the full item from ML and upserts it into the local MarketplaceItem
         table so the platform reflects the latest state announced by the webhook.
+        The notification timestamp is forwarded so integrations-service can
+        discard an out-of-order delivery (Plan 9 stale-event protection).
         """
         ml_user_id = payload.get("ml_user_id")
         resource = payload.get("resource", "")
@@ -198,7 +236,21 @@ class EventConsumer:
             raise ValueError(f"no credential for ml_user_id={ml_user_id}")
 
         item_data = await processor.integrations.get_item(resolved["tenant_id"], item_id)
-        await processor.integrations.upsert_local_item(resolved["tenant_id"], item_data)
+        await processor.integrations.upsert_local_item(
+            resolved["tenant_id"],
+            item_data,
+            event_timestamp=_event_timestamp(payload),
+        )
+        # Plan 12: mirror ML metadata into catalog Product/SKU (best-effort).
+        try:
+            await processor.mirror_metadata_from_ml(
+                resolved["tenant_id"], item_data
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "metadata_mirror_failed",
+                extra={"ml_item_id": item_id, "tenant_id": resolved["tenant_id"]},
+            )
 
     # ------------------------------------------------------------------ #
     # DB helpers (kept small so tests can substitute a session factory)
@@ -222,15 +274,55 @@ class EventConsumer:
     ) -> SyncEvent:
         session = self._open_session()
         try:
+            # Fast path: the event was already persisted by an earlier delivery.
             if dedupe_key:
-                existing = session.query(SyncEvent).filter_by(dedupe_key=dedupe_key).first()
+                existing = session.exec(
+                    select(SyncEvent).where(SyncEvent.dedupe_key == dedupe_key)
+                ).first()
                 if existing is not None:
                     return existing
+
+            # Optimistic insert. Concurrent deliveries with the same dedupe_key
+            # race here; the unique constraint picks a single winner.
             record = SyncEvent(event_type=event_type, dedupe_key=dedupe_key, payload=payload)
             session.add(record)
-            session.commit()
-            session.refresh(record)
-            return record
+            try:
+                session.commit()
+                session.refresh(record)
+                return record
+            except IntegrityError:
+                # PostgreSQL aborts the transaction; clear it before querying again.
+                session.rollback()
+
+                # Without a dedupe_key the failure is not a duplicate delivery, so
+                # the original constraint violation must surface to the caller.
+                if not dedupe_key:
+                    raise
+
+                logger.info(
+                    "syncevent_dedupe_conflict",
+                    extra={"dedupe_key": dedupe_key, "event_type": event_type},
+                )
+
+                existing = session.exec(
+                    select(SyncEvent).where(SyncEvent.dedupe_key == dedupe_key)
+                ).first()
+                if existing is not None:
+                    return existing
+
+                # The concurrent winner rolled back before we could read its row.
+                # Retry the insert exactly once so at-least-once delivery holds.
+                fallback = SyncEvent(
+                    event_type=event_type, dedupe_key=dedupe_key, payload=payload
+                )
+                session.add(fallback)
+                try:
+                    session.commit()
+                    session.refresh(fallback)
+                    return fallback
+                except IntegrityError:
+                    session.rollback()
+                    raise
         finally:
             session.close()
 

@@ -15,6 +15,7 @@ from app.db.session import get_session
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    settings.validate_production_hardening()
     yield
 
 

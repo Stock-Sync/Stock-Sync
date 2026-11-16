@@ -24,6 +24,8 @@ Serviço responsável pelo catálogo de produtos e pelo mapeamento de SKU entre 
 | `POST` | `/api/v1/skus/{id}/adjust` | ajuste atômico de estoque (clampa em 0 e publica `stock_adjust`) |
 | `GET` | `/api/v1/platform-mappings` | lista vínculos SKU ↔ marketplace (filtros: `platform`, `platform_sku`, `platform_product_id`) |
 | `POST` | `/api/v1/platform-mappings` | cria vínculo (usado pelo wizard de anúncios e pelo pull de anúncios) |
+| `POST` | `/api/v1/platform-mappings/re-link` | revínculo manual controlado (reativa vínculo removido pelo usuário e tenta atualizar o `seller_custom_field`) |
+| `DELETE` | `/api/v1/platform-mappings/{id}` | desvínculo orquestrado: pausa/zera no ML antes do soft delete (`deleted_reason=user`) |
 
 ### Exclusão (soft delete)
 
@@ -45,9 +47,12 @@ também são marcados e os `PlatformMapping` vinculados ficam com
 
 ### `POST /api/v1/skus/{id}/adjust`
 
-Ajuste relativo de estoque (`delta` negativo deduz, positivo soma). O novo valor é
-calculado em SQL (`UPDATE ... RETURNING`), então ajustes concorrentes nunca perdem
-atualização e o estoque nunca fica negativo (clampa em 0, `clamped: true`).
+Ajuste relativo de estoque (`delta` negativo deduz, positivo soma). A linha é lida
+com `SELECT ... FOR UPDATE`, então `previous_quantity`, `new_quantity` e `clamped`
+descrevem a mesma transição serializada: um ajuste concorrente no mesmo SKU espera
+o lock e enxerga a quantidade já gravada. O estoque nunca fica negativo (clampa em
+0, `clamped: true`) e o valor de `previous_quantity` é seguro para calcular a
+devolução em cancelamentos.
 
 ```json
 { "delta": -3, "source": "manual" }
@@ -64,6 +69,18 @@ Após o commit, o serviço publica um evento `stock_adjust` no stream
 integrations-service) para que o sync-service propague a nova quantidade aos
 marketplaces. O publish é best-effort: uma indisponibilidade do Redis nunca
 falha a request original.
+
+## Autenticação e tenancy
+
+As rotas públicas aceitam apenas o access token do auth-service
+(`Authorization: Bearer` ou cookie `access_token`, com `type=access`). O
+`X-Tenant-ID` isolado e o cookie legado `tenant_id` não são confiados; tokens
+`refresh` são rejeitados.
+
+As chamadas do sync-service usam o caminho interno: `X-Internal-Secret` válido
+(comparação com `hmac.compare_digest`) + `X-Tenant-ID`. A presença do header de
+segredo ativa o caminho interno; sem ele, um `X-Tenant-ID` isolado é ignorado e
+a requisição cai na validação do JWT.
 
 ## Estrutura interna
 
@@ -90,6 +107,9 @@ catalog-service/
 | -------- | ------ | --------- |
 | `DATABASE_URL` | `postgresql+psycopg://.../stocksync_catalog` | banco do serviço |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis compartilhado (stream `stocksync:events`) |
+| `JWT_SECRET_KEY` / `JWT_ALGORITHM` | — | validam o access token do auth-service |
+| `INTERNAL_SERVICE_SECRET` | `your-internal-service-secret-change-in-production` | segredo das chamadas internas do sync-service (`X-Internal-Secret` + `X-Tenant-ID`) |
+| `INTEGRATIONS_SERVICE_URL` | `http://localhost:8003` | usado no desvínculo (pausa/zeragem) e no revínculo (`seller_custom_field`) |
 
 ## Como executar
 

@@ -7,6 +7,7 @@ from sqlmodel.main import SQLModelConfig
 class OrderCreate(SQLModel):
     """Internal payload used by sync-service to record a processed sale."""
 
+    tenant_id: str | None = Field(default=None, max_length=64)
     marketplace: str = Field(min_length=1, max_length=50)
     marketplace_order_id: str = Field(min_length=1, max_length=100)
     marketplace_item_id: str = Field(default="", max_length=100)
@@ -20,6 +21,7 @@ class OrderCreate(SQLModel):
     total_amount: float = Field(ge=0)
     currency: str = Field(default="BRL", max_length=3)
     status: str = Field(min_length=1, max_length=50)
+    is_variation: bool = False
     ordered_at: datetime | None = Field(default=None)
 
 
@@ -27,6 +29,7 @@ class OrderRead(SQLModel):
     model_config = SQLModelConfig(from_attributes=True)
 
     id: int
+    tenant_id: str
     marketplace: str
     marketplace_order_id: str
     marketplace_item_id: str
@@ -40,6 +43,7 @@ class OrderRead(SQLModel):
     total_amount: float
     currency: str
     status: str
+    is_variation: bool
     ordered_at: datetime
     created_at: datetime
 

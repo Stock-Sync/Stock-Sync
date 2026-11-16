@@ -42,6 +42,8 @@ interface ListingRow {
   productTitle: string;
   isActive: boolean;
   isLinked: boolean;
+  /** Raw status reported by the marketplace (active, paused, closed, ...). */
+  marketplaceStatus: string | null;
   updatedAt: string;
 }
 
@@ -92,9 +94,13 @@ export function ListingsPage() {
           : item.sku_id != null
             ? productBySku.get(item.sku_id)
             : undefined;
+      // A listing is only active when both sides agree: the local link is
+      // enabled AND the marketplace item is active and not soft-deleted.
+      const isActiveOnMl =
+        item.status === "active" && item.is_deleted !== true;
       const isActive = mapping
-        ? mapping.is_active
-        : item.status === "active";
+        ? mapping.is_active && isActiveOnMl
+        : isActiveOnMl;
 
       result.push({
         key: `item-${item.item_id}`,
@@ -107,6 +113,7 @@ export function ListingsPage() {
         productTitle: product?.title ?? "Produto arquivado ou não vinculado",
         isActive,
         isLinked: Boolean(mapping?.is_active && product),
+        marketplaceStatus: item.status,
         updatedAt: item.updated_at ?? mapping?.updated_at ?? new Date().toISOString(),
       });
     }
@@ -128,6 +135,7 @@ export function ListingsPage() {
         productTitle: product?.title ?? "Produto arquivado ou não vinculado",
         isActive: mapping.is_active,
         isLinked: Boolean(mapping.is_active && product),
+        marketplaceStatus: null,
         updatedAt: mapping.updated_at,
       });
     }
@@ -176,6 +184,9 @@ export function ListingsPage() {
           <Badge tone={row.isActive ? "success" : "neutral"}>
             {row.isActive ? "Ativo" : "Inativo"}
           </Badge>
+          {row.marketplaceStatus === "paused" && (
+            <Badge tone="warning">Pausado no ML</Badge>
+          )}
           {!row.isLinked && (
             <Badge tone="warning">Desvinculado / Produto arquivado</Badge>
           )}
@@ -356,7 +367,7 @@ export function ListingsPage() {
         title="Excluir vínculo"
         description={
           pendingDeletion
-            ? `"${pendingDeletion.platformSku}" deixará de estar vinculado. O anúncio continua publicado no marketplace; use "Pausar" se quiser encerrá-lo. O produto continua no catálogo interno.`
+            ? `"${pendingDeletion.platformSku}" deixará de estar vinculado. O anúncio será pausado e zerado no Mercado Livre (quando ainda estiver ativo). O produto continua no catálogo interno.`
             : ""
         }
         confirmLabel="Excluir"

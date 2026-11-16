@@ -15,6 +15,7 @@ export interface Order {
   total_amount: number;
   currency: string;
   status: string;
+  is_variation: boolean;
   ordered_at: string;
   created_at: string;
 }

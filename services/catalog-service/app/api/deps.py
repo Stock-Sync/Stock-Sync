@@ -1,72 +1,114 @@
 """Dependencies shared across catalog-service routes.
 
-Resolves the current tenant from the authenticated request, mirroring the
-contract used by integrations-service and sync-service so a single tenant_id
-is enforced everywhere.
+The catalog serves two kinds of callers:
+
+* the frontend, authenticated by the auth-service JWT (``access_token`` cookie
+  or ``Authorization: Bearer``);
+* sibling services (sync-service), authenticated by the internal shared secret
+  plus the ``X-Tenant-ID`` header.
+
+``get_tenant_id`` is therefore hybrid: the presence of ``X-Internal-Secret``
+selects the internal path, otherwise the request must carry a valid access
+token. An isolated ``X-Tenant-ID`` header is never trusted.
 """
 
-from fastapi import Depends, HTTPException, Request, status
+import hmac
+
+from fastapi import Depends, Header, HTTPException, Request, status
 from jose import JWTError, jwt
 
 from app.core.config import settings
 
+_UNAUTHORIZED_DETAIL = "Tenant ID not found"
 
-def get_tenant_id(request: Request) -> str:
-    """Extract tenant_id from an authenticated request.
 
-    Priority:
-    1. X-Tenant-ID header (service-to-service calls)
-    2. tenant_id cookie (explicit)
-    3. access_token cookie (JWT from auth-service) - decode JWT
-    4. Authorization: Bearer header (fallback; http-client sends the token here)
-    """
-    # 1. Header (service-to-service)
-    tenant_id = request.headers.get("X-Tenant-ID")
-    if tenant_id:
-        return tenant_id
+def _tenant_from_access_token(token: str) -> str | None:
+    """Decode an auth-service token and return its tenant when it is an access token."""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+    except JWTError:
+        return None
 
-    # 2. Explicit tenant_id cookie
-    tenant_id = request.cookies.get("tenant_id")
-    if tenant_id:
-        return tenant_id
+    if payload.get("type") != "access":
+        return None
 
-    # 3. Extract from access_token cookie (JWT from auth-service)
+    tenant_id = payload.get("tenant_id")
+    return str(tenant_id) if tenant_id else None
+
+
+def _tenant_from_public_request(request: Request) -> str | None:
+    """Resolve the tenant from the cookie or the Authorization: Bearer header."""
     access_token = request.cookies.get("access_token")
     if access_token:
-        try:
-            payload = jwt.decode(
-                access_token,
-                settings.jwt_secret_key,
-                algorithms=[settings.jwt_algorithm],
-            )
-            tenant_id = payload.get("tenant_id")
-            if tenant_id:
-                return tenant_id
-        except JWTError:
-            pass  # Invalid token, continue to next method
+        tenant_id = _tenant_from_access_token(access_token)
+        if tenant_id:
+            return tenant_id
 
-    # 4. Fallback: Authorization: Bearer header
     authorization = request.headers.get("Authorization", "")
     if authorization.startswith("Bearer "):
-        token = authorization[len("Bearer "):]
-        try:
-            payload = jwt.decode(
-                token,
-                settings.jwt_secret_key,
-                algorithms=[settings.jwt_algorithm],
-            )
-            tenant_id = payload.get("tenant_id")
-            if tenant_id:
-                return tenant_id
-        except JWTError:
-            pass
+        return _tenant_from_access_token(authorization[len("Bearer ") :])
 
-    raise HTTPException(
+    return None
+
+
+def _unauthorized() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Tenant ID not found",
+        detail=_UNAUTHORIZED_DETAIL,
     )
+
+
+def get_tenant_id(request: Request) -> str:
+    """Resolve the tenant for public (JWT) and internal (secret + header) calls.
+
+    * ``X-Internal-Secret`` present: the internal path is used and the secret
+      must be valid; ``X-Tenant-ID`` is then required.
+    * otherwise: only a signed access token is accepted. The legacy
+      ``tenant_id`` cookie and a standalone ``X-Tenant-ID`` are rejected.
+    """
+    internal_secret = request.headers.get("X-Internal-Secret")
+    if internal_secret is not None:
+        if not hmac.compare_digest(internal_secret, settings.internal_service_secret):
+            raise _unauthorized()
+        tenant_id = request.headers.get("X-Tenant-ID")
+        if not tenant_id:
+            raise _unauthorized()
+        return tenant_id
+
+    tenant_id = _tenant_from_public_request(request)
+    if tenant_id:
+        return tenant_id
+
+    raise _unauthorized()
 
 
 def get_current_tenant(tenant_id: str = Depends(get_tenant_id)) -> str:
     """Alias for clarity in route signatures."""
     return tenant_id
+
+
+def require_internal_secret(
+    x_internal_secret: str | None = Header(default=None),
+) -> None:
+    """Guard strict service-to-service endpoints with the shared secret."""
+    if not x_internal_secret or not hmac.compare_digest(
+        x_internal_secret, settings.internal_service_secret
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid internal service secret",
+        )
+
+
+def get_internal_tenant_id(
+    x_tenant_id: str | None = Header(default=None),
+    _: None = Depends(require_internal_secret),
+) -> str:
+    """Resolve the tenant of an internal request (valid secret + X-Tenant-ID)."""
+    if not x_tenant_id:
+        raise _unauthorized()
+    return x_tenant_id

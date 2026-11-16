@@ -1,21 +1,47 @@
-"""Sync API route tests (pull and status both require a tenant)."""
-
+"""Sync API route tests (pull, status and dead-letter replay)."""
 
 import fakeredis.aioredis
+from app.models import SyncEvent
+from app.streams.consts import DEAD_STREAM_KEY, STREAM_KEY
 from jose import jwt
 
+INTERNAL_HEADERS = {"X-Internal-Secret": "test-secret"}
 
-def _tenant_cookie(tenant_id="tenant-1"):
+
+def _tenant_cookie(tenant_id="tenant-1", token_type="access"):
     from app.core.config import settings
 
     token = jwt.encode(
-        {"tenant_id": tenant_id}, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+        {"tenant_id": tenant_id, "type": token_type},
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
     )
     return {"access_token": token}
 
 
 def test_pull_requires_tenant(client):
     response = client.post("/api/v1/sync/listings/pull")
+    assert response.status_code == 401
+
+
+def test_pull_rejects_standalone_tenant_header(client):
+    response = client.post(
+        "/api/v1/sync/listings/pull", headers={"X-Tenant-ID": "tenant-1"}
+    )
+    assert response.status_code == 401
+
+
+def test_pull_rejects_legacy_tenant_cookie(client):
+    response = client.post(
+        "/api/v1/sync/listings/pull", cookies={"tenant_id": "tenant-1"}
+    )
+    assert response.status_code == 401
+
+
+def test_pull_rejects_refresh_token(client):
+    response = client.post(
+        "/api/v1/sync/listings/pull", cookies=_tenant_cookie(token_type="refresh")
+    )
     assert response.status_code == 401
 
 
@@ -83,3 +109,69 @@ def test_status_survives_redis_outage(client, monkeypatch):
         "pending_quantity_updates": None,
         "dead_letters": None,
     }
+
+
+def test_replay_dead_letters_requires_internal_secret(client):
+    response = client.post("/api/v1/sync/dead-letters/replay")
+    assert response.status_code == 401
+
+
+def test_replay_dead_letters_rejects_standalone_tenant_header(client):
+    response = client.post(
+        "/api/v1/sync/dead-letters/replay",
+        headers={"X-Tenant-ID": "tenant-1"},
+    )
+    assert response.status_code == 401
+
+
+def test_replay_dead_letters_moves_entries_and_resets_event(
+    client, db_session, monkeypatch
+):
+    import asyncio
+
+    fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    asyncio.run(
+        fake.xadd(
+            DEAD_STREAM_KEY,
+            {
+                "event_type": "stock_adjust",
+                "event_id": "sa-dead",
+                "payload": '{"sku_id": 1, "new_quantity": 5}',
+            },
+        )
+    )
+    db_session.add(
+        SyncEvent(
+            event_type="stock_adjust",
+            dedupe_key="sa-dead",
+            payload={"sku_id": 1, "new_quantity": 5},
+            status="failed",
+            retry_count=5,
+            error_message="boom",
+        )
+    )
+    db_session.commit()
+
+    import app.core.redis as redis_module
+
+    monkeypatch.setattr(redis_module, "get_redis", lambda: fake)
+
+    response = client.post(
+        "/api/v1/sync/dead-letters/replay",
+        cookies=_tenant_cookie(),
+        headers=INTERNAL_HEADERS,
+    )
+    assert response.status_code == 200
+    assert response.json()["replayed"] == 1
+
+    assert asyncio.run(fake.xlen(DEAD_STREAM_KEY)) == 0
+    entries = asyncio.run(fake.xrange(STREAM_KEY))
+    assert len(entries) == 1
+    assert entries[0][1]["event_id"] == "sa-dead"
+
+    record = db_session.query(SyncEvent).filter_by(dedupe_key="sa-dead").one()
+    db_session.refresh(record)
+    assert record.status == "pending"
+    assert record.retry_count == 0
+    assert record.error_message is None
+    assert record.processed_at is None

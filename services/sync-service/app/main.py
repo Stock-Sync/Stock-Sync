@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    settings.validate_production_hardening()
     background: list[asyncio.Task] = []
     consumer: EventConsumer | None = None
     flusher: QuantityFlusher | None = None

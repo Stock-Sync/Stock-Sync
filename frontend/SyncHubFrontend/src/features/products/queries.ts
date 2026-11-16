@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { catalogClient, type SKUCreate } from "../../lib/api/catalog-client";
+import {
+  catalogClient,
+  type ProductActiveListing,
+  type SKUCreate,
+} from "../../lib/api/catalog-client";
+import { mercadolibreClient } from "../../lib/api/mercadolibre-client";
 import type { ProductView } from "../../types/view-models";
 import { toProductView } from "../../types/view-models";
 
@@ -76,10 +81,7 @@ export function useProductListings(skuId: number | undefined) {
 }
 
 /**
- * Cria produto + SKU em uma única mutação.
- *
- * O backend exige dois POSTs (`/products` e `/skus`), então o fluxo de criação
- * é orquestrado aqui para que a tela trate como uma única operação.
+ * Cria produto + SKU atomicamente via composite endpoint (Plan 11).
  */
 export function useCreateProduct() {
   const queryClient = useQueryClient();
@@ -93,19 +95,15 @@ export function useCreateProduct() {
       stockQuantity: number;
       pictures: { source: string }[];
     }) => {
-      const product = await catalogClient.createProduct({
+      const composite = await catalogClient.createProductComposite({
         name: input.title,
         description: input.description,
-        pictures: input.pictures.map((p) => p.source),
-      });
-      const skuPayload: SKUCreate = {
-        product_id: product.id,
         internal_sku: input.sku,
         price: input.price,
         stock_quantity: input.stockQuantity,
-      };
-      const sku = await catalogClient.createSku(skuPayload);
-      return toProductView(product, sku);
+        pictures: input.pictures.map((p) => p.source),
+      });
+      return toProductView(composite, composite.sku);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.products });
@@ -113,6 +111,9 @@ export function useCreateProduct() {
   });
 }
 
+/**
+ * Atualiza produto + SKU atomicamente via composite endpoint (Plan 11).
+ */
 export function useUpdateProduct() {
   const queryClient = useQueryClient();
 
@@ -127,17 +128,15 @@ export function useUpdateProduct() {
       stockQuantity: number;
       pictures: { source: string }[];
     }) => {
-      const product = await catalogClient.updateProduct(input.id, {
+      const composite = await catalogClient.updateProductComposite(input.id, {
         name: input.title,
         description: input.description,
-        pictures: input.pictures.map((p) => p.source),
-      });
-      const sku = await catalogClient.updateSku(input.skuId, {
         internal_sku: input.sku,
         price: input.price,
         stock_quantity: input.stockQuantity,
+        pictures: input.pictures.map((p) => p.source),
       });
-      return toProductView(product, sku);
+      return toProductView(composite, composite.sku);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.products });
@@ -161,7 +160,59 @@ export function useDeleteProduct() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.products });
       void queryClient.invalidateQueries({ queryKey: ["listings"] });
+      void queryClient.invalidateQueries({ queryKey: ["ml-local-items"] });
     },
   });
 }
 
+/**
+ * Pausa e zera um conjunto de anúncios no Mercado Livre (Plan 10).
+ *
+ * A operação é sequencial: se um anúncio falhar, as chamadas seguintes são
+ * abortadas para que o usuário possa tentar novamente sem continuar mexendo
+ * em um estado parcial. Anúncios já encerrados são ignorados.
+ */
+export function usePauseAndZeroListings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (listings: ProductActiveListing[]) => {
+      let updated = 0;
+      for (const listing of listings) {
+        if (!listing.id || listing.status === "closed") {
+          continue;
+        }
+        // A paused listing only needs its quantity zeroed; an active one must
+        // also transition to paused.
+        await mercadolibreClient.updateMlItem(
+          listing.id,
+          listing.status === "paused"
+            ? { available_quantity: 0 }
+            : { status: "paused", available_quantity: 0 }
+        );
+        updated += 1;
+      }
+      return updated;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.products });
+      void queryClient.invalidateQueries({ queryKey: ["listings"] });
+      void queryClient.invalidateQueries({ queryKey: ["ml-local-items"] });
+    },
+  });
+}
+
+/** Desvincula todos os anúncios locais do produto (Plan 10). */
+export function useUnbindProductListings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (productId: number) =>
+      catalogClient.unbindProductListings(productId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.products });
+      void queryClient.invalidateQueries({ queryKey: ["listings"] });
+      void queryClient.invalidateQueries({ queryKey: ["ml-local-items"] });
+    },
+  });
+}

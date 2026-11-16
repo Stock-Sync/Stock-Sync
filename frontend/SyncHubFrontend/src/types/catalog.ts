@@ -25,12 +25,14 @@ export function platformLabel(value: string): string {
   return PLATFORM_LABELS[value as Platform] ?? value;
 }
 
-/** Espelha `ProductRead`. */
+/** Espelha `ProductRead` e `ProductReadComposite`. */
 export interface Product {
   id: number;
   tenant_id: string;
   name: string;
   description: string | null;
+  is_description_truncated?: boolean;
+  has_active_listing?: boolean;
   pictures?: string[];
   created_at: string;
   updated_at: string;
